@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Battlefront V3 Multiplayer
 // @namespace    https://github.com/CoderGuyxLemoncelloJr/Battlefront
-// @version      0.1.0
+// @version      0.1.1
 // @description  The no-UI WebSocket bridge for the Battlefront multiplayer test.
 // @author       Coder Guy
 // @license      MIT
@@ -20,8 +20,8 @@
 hey, here's the setup:
 1. everyone installs Tampermonkey, then this script.
 2. open https://www.khanacademy.org/computer-programming/pjs/5684189710893056?editor=no. pick a name and hit Host.
-3. hit Copy invite in the game and send that link to your friends.
-4. they open it, pick a name, and hit Join. the host picks the map and starts.
+3. click the HOST label at the top, hit Copy invite, and send that link to your friends.
+4. they open it, pick a name, and hit Join. the host picks the map and starts from Play.
 
 that's it. WASD moves, click uses your held item, 1-5 swaps slots.
 the script adds zero buttons or panels to the page. the game handles that.
@@ -103,6 +103,9 @@ if the host leaves, someone still in the room takes over. keep the invite privat
     const base64ToBytes = value => Uint8Array.from(atob(value), ch => ch.charCodeAt(0));
     const urlToken = bytes => bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const randomToken = () => urlToken(crypto.getRandomValues(new Uint8Array(32)));
+    let tabId = sessionStorage.getItem('battlefront-tab-id');
+    if (!tabId) { tabId = randomToken(); sessionStorage.setItem('battlefront-tab-id', tabId); }
+    const storageKey = room => 'battlefront-' + tabId + '-' + room;
     const digest = async value => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
     let frame;
     let frameOrigin;
@@ -124,7 +127,7 @@ if the host leaves, someone still in the room takes over. keep the invite privat
     };
     const publish = () => sendFrame('state', {state});
     const save = () => {
-        if (auth) GM_setValue('battlefront-room-' + auth.room, auth);
+        if (auth) GM_setValue(storageKey(auth.room), auth);
     };
     const inviteUrl = () => 'https://www.khanacademy.org/computer-programming/pjs/' + projectId + '?editor=no#bf=' + auth.room + '.' + auth.secret;
     async function configure(request) {
@@ -141,7 +144,7 @@ if the host leaves, someone still in the room takes over. keep the invite privat
         } else {
             const match = String(request.invite || location.hash).match(/(?:#bf=|^)([A-Z0-9]{6,16})\.([A-Za-z0-9_-]{43})$/);
             if (!match) { state.message = 'Paste the full invite link'; publish(); return; }
-            const saved = GM_getValue('battlefront-room-' + match[1], null);
+            const saved = GM_getValue(storageKey(match[1]), null);
             auth = saved && saved.secret === match[2] ? {...saved, create: false, name} : {room: match[1], secret: match[2], hostToken: '', resumeToken: '', create: false, wasHost: false, name};
         }
         key = await crypto.subtle.importKey('raw', await digest('battlefront-key:' + auth.secret), 'AES-GCM', false, ['encrypt', 'decrypt']);
@@ -212,7 +215,11 @@ if the host leaves, someone still in the room takes over. keep the invite privat
             } else if (packet.type === 'pong') { state.ping = Math.max(0, Math.min(60000, Date.now() - packet.at)); publish(); }
             else if (packet.type === 'error') {
                 state.message = String(packet.message || 'Connection refused'); publish();
-                if (packet.message === 'Invalid host') { auth.hostToken = ''; auth.wasHost = false; save(); }
+                if (packet.message === 'Host is already connected' || packet.message === 'Player already connected') {
+                    tabId = randomToken(); sessionStorage.setItem('battlefront-tab-id', tabId);
+                    auth.hostToken = ''; auth.resumeToken = ''; auth.wasHost = false; auth.create = false; save();
+                }
+                else if (packet.message === 'Invalid host') { auth.hostToken = ''; auth.wasHost = false; save(); }
                 else if (packet.message === 'Room unavailable' && auth.wasHost) { auth.create = true; save(); }
                 else if (packet.message === 'Room already exists') { auth.create = false; save(); }
                 else { active = false; }
