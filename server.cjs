@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
-const { attachBattlefrontRelay } = require('./battlefront-relay.cjs');
 
 function createTestServer(options = {}) {
     const rooms = new Map();
@@ -16,16 +15,14 @@ function createTestServer(options = {}) {
             res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((n, r) => n + r.size, 0), tick }));
             return;
         }
-        const routes = { '/': ['index.html', 'text/html; charset=utf-8'], '/bridge.user.js': ['bridge.user.js', 'text/javascript; charset=utf-8'], '/battlefront.user.js': ['battlefront.user.js', 'text/javascript; charset=utf-8'] };
+        const routes = { '/': ['index.html', 'text/html; charset=utf-8'], '/connect': ['connect.html', 'text/html; charset=utf-8'], '/game.html': ['index.html', 'text/html; charset=utf-8'], '/bridge.user.js': ['bridge.user.js', 'text/javascript; charset=utf-8'], '/battlefront.user.js': ['battlefront.user.js', 'text/javascript; charset=utf-8'] };
         const route = routes[req.url && req.url.split('?')[0]];
         if (!route) { res.writeHead(404);res.end('Not found');return; }
         res.writeHead(200, { 'Content-Type': route[1], 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
         fs.createReadStream(path.join(__dirname, 'public', route[0])).pipe(res);
     });
     const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
-    const battlefront = attachBattlefrontRelay(server);
     server.on('upgrade', (req, socket, head) => {
-        if (req.url === '/battlefront') { return; }
         if (req.url !== '/ws' || clients.size >= 128) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');return; }
         sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws));
     });
@@ -41,7 +38,7 @@ function createTestServer(options = {}) {
         client.room = '';
     }
     sockets.on('connection', ws => {
-        const client = { ws, id: crypto.randomUUID(), room: '', input: {}, lastInput: 0, x: 400, y: 300, name: '', color: '', lastPong: Date.now(), rateStart: Date.now(), count: 0 };
+        const client = { ws, id: crypto.randomUUID(), room: '', input: {}, lastInput: 0, x: 400, y: 300, name: '', color: '', lastPong: Date.now(), chatAt: 0, rateStart: Date.now(), count: 0 };
         clients.add(client);
         const joinTimer = setTimeout(() => { if (!client.room) { ws.close(1008, 'Join required'); } }, 10000);
         ws.on('error', () => {});
@@ -61,16 +58,26 @@ function createTestServer(options = {}) {
                 if (!/^[A-Z0-9_-]{1,24}$/.test(roomName) || !name) { send(ws, { type: 'error', message: 'Use a name and a room with letters or numbers.' });return; }
                 let room = rooms.get(roomName);
                 if ((!room && rooms.size >= 32) || (room && room.size >= 8)) { send(ws, { type: 'error', message: 'Room or server full.' });ws.close(1008, 'Full');return; }
-                if (!room) { room = new Map();rooms.set(roomName, room); }
+                if (!room) { room = new Map();room.chat = [];rooms.set(roomName, room); }
                 client.room = roomName;client.name = name;client.color = colors[room.size % colors.length];
                 client.x = 150 + (room.size % 4) * 150;client.y = 180 + Math.floor(room.size / 4) * 200;
                 room.set(client.id, client);clearTimeout(joinTimer);
-                send(ws, { type: 'welcome', id: client.id, room: roomName, width: 800, height: 600 });
+                send(ws, { type: 'welcome', id: client.id, room: roomName, width: 800, height: 600, chat: room.chat });
             } else if (data.type === 'input' && client.room) {
                 const input = data.keys;
                 if (!input || typeof input !== 'object') { return; }
                 client.input = { up: input.up === true, down: input.down === true, left: input.left === true, right: input.right === true };
                 client.lastInput = now;
+            } else if (data.type === 'chat' && client.room) {
+                if (now - client.chatAt < 500 || typeof data.text !== 'string') return;
+                const text = data.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 180);
+                if (!text) return;
+                client.chatAt = now;
+                const room = rooms.get(client.room);
+                if (!room) return;
+                const msg = {type: 'chat', id: client.id, name: client.name, text};
+                room.chat.push(msg); if (room.chat.length > 30) room.chat.shift();
+                for (const peer of room.values()) send(peer.ws, msg);
             } else if (data.type === 'ping') {
                 send(ws, { type: 'pong', at: Number.isFinite(data.at) ? data.at : 0 });
             }
@@ -102,7 +109,6 @@ function createTestServer(options = {}) {
     }, 15000);
     async function close() {
         clearInterval(interval);clearInterval(heartbeat);
-        await battlefront.close();
         for (const client of clients) { client.ws.terminate(); }
         await new Promise(resolve => sockets.close(resolve));
         await new Promise(resolve => server.close(resolve));

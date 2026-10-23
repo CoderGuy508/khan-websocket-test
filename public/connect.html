@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Game connection</title>
+<style>body{max-width:480px;margin:60px auto;padding:20px;font:16px/1.6 Arial,sans-serif;color:#263343}h1{font-size:22px}p{color:#536174}</style></head>
+<body><h1>Game connection</h1><p id="state">Connecting to the game...</p><p>Keep this tab open. You can go back to the game.</p>
+<script>
+(function() {
+    'use strict';
+    var key = location.hash.slice(1), peer = window.opener, origin = '', ws, retry, ping, timer, tries = 0, room, ended = false;
+    var label = document.getElementById('state');
+    function allowed(value) { return /^https:\/\/(www\.)?kasandbox\.org$/.test(value) || value === location.origin; }
+    function send(data) { if (peer && origin) peer.postMessage({channel: 'ka-room-v1', key: key, data: data}, origin); }
+    function state(text) { label.textContent = text; send({type: 'status', text: text}); }
+    function connect() {
+        if (ended || !room) return;
+        state(tries ? 'Reconnecting...' : 'Connecting to server...');
+        var sock = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); ws = sock;
+        sock.onopen = function() {
+            if (sock !== ws) return;
+            sock.send(JSON.stringify({type: 'join', room: room.room, name: room.name}));
+        };
+        sock.onmessage = function(event) {
+            if (sock !== ws || typeof event.data !== 'string' || event.data.length > 65536) return;
+            var data; try { data = JSON.parse(event.data); } catch (e) { return; }
+            if (data.type === 'welcome') { tries = 0; state('Connected'); }
+            if (data.type === 'error') { ended = true; state(data.message); }
+            send(data);
+        };
+        sock.onerror = function() { if (sock === ws) state('Waking the server...'); };
+        sock.onclose = function() {
+            if (sock !== ws) return;
+            ws = null;
+            send({type: 'disconnected'});
+            if (!ended) { state('Reconnecting...'); retry = setTimeout(connect, Math.min(10000, 1000 * Math.pow(1.5, tries++))); }
+        };
+    }
+    function stop() {
+        ended = true; clearTimeout(retry); clearInterval(timer); clearInterval(ping);
+        var old = ws; ws = null; if (old) old.close();
+    }
+    if (!peer || !/^[a-f0-9]{32}$/.test(key)) { label.textContent = 'Open this tab using Connect in the game.'; return; }
+    window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (event.source !== peer || !allowed(event.origin) || !msg || msg.channel !== 'ka-room-v1' || msg.key !== key) return;
+        origin = event.origin;
+        var data = msg.data || {};
+        if (data.type === 'join') {
+            if (!/^[A-Z0-9_-]{1,24}$/.test(data.room || '') || typeof data.name !== 'string') return;
+            stop(); ended = false; room = {room: data.room, name: data.name.slice(0, 16)}; connect();
+            ping = setInterval(function() { if (peer.closed) { stop(); return; } if (ws && ws.readyState === 1) ws.send(JSON.stringify({type: 'ping', at: Date.now()})); }, 10000);
+        } else if (data.type === 'input' || data.type === 'chat') {
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
+        } else if (data.type === 'leave') { stop(); label.textContent = 'Disconnected. You can close this tab.'; }
+    });
+    timer = setInterval(function() {
+        if (peer.closed) { stop(); label.textContent = 'The game was closed. You can close this tab.'; return; }
+        if (!origin) {
+            peer.postMessage({channel: 'ka-room-v1', key: key, data: {type: 'ready'}}, 'https://www.kasandbox.org');
+            peer.postMessage({channel: 'ka-room-v1', key: key, data: {type: 'ready'}}, 'https://kasandbox.org');
+            peer.postMessage({channel: 'ka-room-v1', key: key, data: {type: 'ready'}}, location.origin);
+        }
+    }, 300);
+    window.addEventListener('pagehide', function() { send({type: 'disconnected'}); stop(); });
+}());
+</script></body></html>
