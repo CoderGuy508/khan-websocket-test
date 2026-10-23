@@ -54,7 +54,7 @@ test('game validates its helper and displays chat as plain text', () => {
     let url;w.open=value=>{url=value;return peer;};w.eval(w.document.querySelector('script').textContent);
     w.document.getElementById('join').dispatchEvent(new w.Event('submit',{cancelable:true}));
     const key=url.split('#')[1];
-    function packet(data, origin='https://coderguy-khan-websocket-test.onrender.com') {
+    function packet(data, origin='https://khan-multiplayer-room.onrender.com') {
         w.dispatchEvent(new w.MessageEvent('message',{source:peer,origin,data:{channel:'ka-room-v1',key,data}}));
     }
     packet({type:'welcome',id:'fake',room:'ROOM'},'https://example.com');
