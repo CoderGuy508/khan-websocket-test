@@ -1,124 +1,347 @@
-<!DOCTYPE html>
-<!-- Imagenator -->
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multiplayer Room</title>
-<style>
-* { box-sizing: border-box; }
-body { margin: 0; padding: 12px; font: 14px/1.4 Arial, sans-serif; color: #263343; background: #fff; }
-main { max-width: 800px; margin: 0 auto; }
-form { display: flex; gap: 6px; margin: 0 0 8px; }
-input, button { min-width: 0; padding: 8px; border: 1px solid #cbd2da; border-radius: 4px; font: inherit; }
-input { flex: 1; width: 0; }
-button { background: #f0f3f6; color: #263343; cursor: pointer; }
-button:disabled { cursor: default; opacity: .55; }
-#state { margin: 0 0 8px; color: #647184; font-size: 12px; }
-canvas { display: block; width: 100%; height: auto; background: #f5f7fa; border: 1px solid #dce2e9; }
-#chat { height: 96px; overflow-y: auto; margin: 8px 0; padding: 4px; overflow-wrap: anywhere; }
-#chat p { margin: 0 0 3px; }
-</style>
-</head>
-<body><main>
-<form id="join"><input id="nick" maxlength="16" placeholder="Name" value="Player" aria-label="Name"><input id="room" maxlength="24" placeholder="Room" value="LOBBY" aria-label="Room"><button id="connect">Connect</button></form>
-<p id="state">WASD or arrows to move. Connect opens a tab; keep it open.</p>
-<canvas id="game" width="800" height="600" tabindex="0" aria-label="Multiplayer play area"></canvas>
-<div id="chat" role="log" aria-live="polite"></div>
-<form id="say"><input id="msg" maxlength="180" placeholder="Send a message..." aria-label="Message" autocomplete="off"><button id="send" disabled>Send</button></form>
-</main>
-<script>
-(function() {
-    'use strict';
-    var host = 'https://khan-multiplayer-room.onrender.com';
-    var board = document.getElementById('game'), ctx = board.getContext('2d');
-    var label = document.getElementById('state'), chat = document.getElementById('chat');
-    var nick = document.getElementById('nick'), room = document.getElementById('room'), msg = document.getElementById('msg');
-    var button = document.getElementById('connect'), send = document.getElementById('send');
-    var peer, key = '', id = '', live = false, keys = {}, dots = {}, prev = 0, inputAt = 0, checkAt = 0;
-    function post(data) { if (peer && !peer.closed) peer.postMessage({channel: 'ka-room-v1', key: key, data: data}, host); }
-    function clear() { keys = {}; post({type: 'input', keys: {}}); }
-    function line(data) {
-        var row = document.createElement('p'), name = document.createElement('strong');
-        name.textContent = data.name + ': '; row.appendChild(name); row.appendChild(document.createTextNode(data.text));
-        chat.appendChild(row); while (chat.children.length > 80) chat.removeChild(chat.firstChild);
-        chat.scrollTop = chat.scrollHeight;
-    }
-    document.getElementById('join').onsubmit = function(event) {
-        event.preventDefault();
-        var name = nick.value.replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 16);
-        var code = room.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
-        if (!name || !code) { label.textContent = 'Enter a name and room.'; return; }
-        post({type: 'leave'}); if (peer && !peer.closed) peer.close();
-        nick.value = name; room.value = code;
-        var bytes = new Uint8Array(16); crypto.getRandomValues(bytes); key = '';
-        for (var i = 0; i < bytes.length; i++) key += ('0' + bytes[i].toString(16)).slice(-2);
-        peer = window.open(host + '/connect#' + key, 'ka-room-' + key);
-        live = false; id = ''; dots = {}; send.disabled = true; chat.textContent = ''; clear();
-        label.textContent = peer ? 'Connecting... Keep the connection tab open.' : 'Allow the connection tab, then press Connect again.';
-    };
-    window.addEventListener('message', function(event) {
-        var packet = event.data;
-        if (event.origin !== host || event.source !== peer || !packet || packet.channel !== 'ka-room-v1' || packet.key !== key) return;
-        var data = packet.data || {};
-        if (data.type === 'ready') { post({type: 'join', name: nick.value, room: room.value}); }
-        else if (data.type === 'status') label.textContent = data.text;
-        else if (data.type === 'welcome') {
-            id = data.id; live = true; send.disabled = false;
-            label.textContent = 'Connected to ' + data.room + ' / WASD or arrows to move';
-            for (var h = 0; h < (data.chat || []).length; h++) line(data.chat[h]);
-        } else if (data.type === 'snapshot') {
-            var next = {};
-            for (var i = 0; i < data.players.length; i++) {
-                var p = data.players[i], old = dots[p.id];
-                next[p.id] = {x: old ? old.x : p.x, y: old ? old.y : p.y, tx: p.x, ty: p.y, name: p.name, color: p.color};
+    <head>
+        <!-- Imagenator -->
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Multiplayer Room</title>
+        <style>
+            * {
+                box-sizing: border-box;
             }
-            dots = next;
-        } else if (data.type === 'chat') line(data);
-        else if (data.type === 'disconnected' || data.type === 'error') {
-            live = false; send.disabled = true; keys = {}; label.textContent = data.message || 'Disconnected. Reconnecting...';
-        }
-    });
-    document.getElementById('say').onsubmit = function(event) {
-        event.preventDefault(); if (!live || !msg.value.trim()) return;
-        post({type: 'chat', text: msg.value.trim().slice(0, 180)}); msg.value = '';
-    };
-    window.addEventListener('keydown', function(event) {
-        if (event.target.tagName === 'INPUT') return;
-        if ([37, 38, 39, 40, 32].indexOf(event.keyCode) >= 0) event.preventDefault();
-        keys[event.keyCode] = true;
-    });
-    window.addEventListener('keyup', function(event) { delete keys[event.keyCode]; });
-    window.addEventListener('blur', clear);
-    document.addEventListener('visibilitychange', function() { if (document.hidden) clear(); });
-    msg.addEventListener('focus', clear);
-    nick.addEventListener('focus', clear);
-    room.addEventListener('focus', clear);
-    board.onclick = function() { board.focus(); };
-    window.addEventListener('pagehide', function() { post({type: 'leave'}); });
-    function frame(now) {
-        var dt = prev ? Math.min(100, now - prev) : 16; prev = now;
-        ctx.clearRect(0, 0, 800, 600); ctx.strokeStyle = '#e8edf2'; ctx.lineWidth = 1;
-        for (var x = 40; x < 800; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 600); ctx.stroke(); }
-        for (var y = 40; y < 600; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(800, y); ctx.stroke(); }
-        var blend = 1 - Math.exp(-dt / 45);
-        for (var who in dots) {
-            if (!dots.hasOwnProperty(who)) continue;
-            var p = dots[who]; p.x += (p.tx - p.x) * blend; p.y += (p.ty - p.y) * blend;
-            ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
-            if (who === id) { ctx.strokeStyle = '#263343'; ctx.lineWidth = 2; ctx.stroke(); }
-            ctx.fillStyle = '#263343'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.fillText(p.name, p.x, p.y - 21);
-        }
-        if (live && now - inputAt >= 80) {
-            inputAt = now;
-            post({type: 'input', keys: {up: !!(keys[87] || keys[38]), down: !!(keys[83] || keys[40]), left: !!(keys[65] || keys[37]), right: !!(keys[68] || keys[39])}});
-        }
-        if (now - checkAt >= 1000) {
-            checkAt = now;
-            if (live && (!peer || peer.closed)) { live = false; send.disabled = true; keys = {}; label.textContent = 'Connection tab closed. Press Connect to rejoin.'; }
-        }
-        requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-}());
-</script></body></html>
+            body {
+                margin: 0;
+                padding: 12px;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.4;
+                color: #263343;
+                background: #fff;
+            }
+            main {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            form {
+                display: flex;
+
+                margin: 0 0 8px;
+            }
+            input,
+            button {
+                min-width: 0;
+                padding: 8px;
+                border: 1px solid #cbd2da;
+                border-radius: 4px;
+                font: inherit;
+            }
+            input {
+                margin-right: 6px;
+                flex: 1;
+                width: 0;
+            }
+            button {
+                background: #f0f3f6;
+                color: #263343;
+                cursor: pointer;
+            }
+            button:disabled {
+                cursor: default;
+                opacity: 0.55;
+            }
+            #state {
+                margin: 0 0 8px;
+                color: #647184;
+                font-size: 12px;
+            }
+            canvas {
+                display: block;
+                width: 100%;
+                height: auto;
+                background: #f5f7fa;
+                border: 1px solid #dce2e9;
+            }
+            #chat {
+                height: 96px;
+                overflow-y: auto;
+                margin: 8px 0;
+                padding: 4px;
+                overflow-wrap: anywhere;
+            }
+            #chat p {
+                margin: 0 0 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <form id="join">
+                <input
+                    id="nick"
+                    maxlength="16"
+                    placeholder="Name"
+                    value="Player"
+                    aria-label="Name"
+                />
+                <input
+                    id="room"
+                    maxlength="24"
+                    placeholder="Room"
+                    value="LOBBY"
+                    aria-label="Room"
+                />
+                <button id="connect">Connect</button>
+            </form>
+            <p id="state">WASD or arrows to move. Connect opens a tab; keep it open.</p>
+            <canvas
+                id="game"
+                width="800"
+                height="600"
+                tabindex="0"
+                aria-label="Multiplayer play area"
+            ></canvas>
+            <div id="chat" role="log" aria-live="polite"></div>
+            <form id="say">
+                <input
+                    id="msg"
+                    maxlength="180"
+                    placeholder="Send a message..."
+                    aria-label="Message"
+                    autocomplete="off"
+                />
+                <button id="send" disabled>Send</button>
+            </form>
+        </main>
+        <script>
+            (function () {
+                "use strict";
+                var host = "https://khan-multiplayer-room.onrender.com";
+                var board = document.getElementById("game"),
+                    ctx = board.getContext("2d");
+                var label = document.getElementById("state"),
+                    chat = document.getElementById("chat");
+                var nick = document.getElementById("nick"),
+                    room = document.getElementById("room"),
+                    msg = document.getElementById("msg");
+                var button = document.getElementById("connect"),
+                    send = document.getElementById("send");
+                var peer,
+                    key = "",
+                    id = "",
+                    live = false,
+                    keys = {},
+                    dots = {},
+                    prev = 0,
+                    inputAt = 0,
+                    checkAt = 0;
+                function post(data) {
+                    if (peer && !peer.closed) {
+                        peer.postMessage({ channel: "ka-room-v1", key: key, data: data }, host);
+                    }
+                }
+                function clear() {
+                    keys = {};
+                    post({ type: "input", keys: {} });
+                }
+                function line(data) {
+                    var row = document.createElement("p"),
+                        name = document.createElement("strong");
+                    name.textContent = data.name + ": ";
+                    row.appendChild(name);
+                    row.appendChild(document.createTextNode(data.text));
+                    chat.appendChild(row);
+                    while (chat.children.length > 80) {
+                        chat.removeChild(chat.firstChild);
+                    }
+                    chat.scrollTop = chat.scrollHeight;
+                }
+                document.getElementById("join").onsubmit = function (event) {
+                    event.preventDefault();
+                    var name = nick.value
+                        .replace(/[^a-zA-Z0-9 _-]/g, "")
+                        .trim()
+                        .slice(0, 16);
+                    var code = room.value
+                        .trim()
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9_-]/g, "")
+                        .slice(0, 24);
+                    if (!name || !code) {
+                        label.textContent = "Enter a name and room.";
+                        return;
+                    }
+                    post({ type: "leave" });
+                    if (peer && !peer.closed) {
+                        peer.close();
+                    }
+                    nick.value = name;
+                    room.value = code;
+                    var bytes = new Uint8Array(16);
+                    crypto.getRandomValues(bytes);
+                    key = "";
+                    for (var i = 0; i < bytes.length; i++) {
+                        key += ("0" + bytes[i].toString(16)).slice(-2);
+                    }
+                    peer = window.open(host + "/connect#" + key, "ka-room-" + key);
+                    live = false;
+                    id = "";
+                    dots = {};
+                    send.disabled = true;
+                    chat.textContent = "";
+                    clear();
+                    label.textContent = peer
+                        ? "Connecting... Keep the connection tab open."
+                        : "Allow the connection tab, then press Connect again.";
+                };
+                window.addEventListener("message", function (event) {
+                    var packet = event.data;
+                    if (
+                        event.origin !== host ||
+                        event.source !== peer ||
+                        !packet ||
+                        packet.channel !== "ka-room-v1" ||
+                        packet.key !== key
+                    ) {
+                        return;
+                    }
+                    var data = packet.data || {};
+                    if (data.type === "ready") {
+                        post({ type: "join", name: nick.value, room: room.value });
+                    } else if (data.type === "status") {
+                        label.textContent = data.text;
+                    } else if (data.type === "welcome") {
+                        id = data.id;
+                        live = true;
+                        send.disabled = false;
+                        label.textContent =
+                            "Connected to " + data.room + " / WASD or arrows to move";
+                        for (var h = 0; h < (data.chat || []).length; h++) {
+                            line(data.chat[h]);
+                        }
+                    } else if (data.type === "snapshot") {
+                        var next = {};
+                        for (var i = 0; i < data.players.length; i++) {
+                            var p = data.players[i],
+                                old = dots[p.id];
+                            next[p.id] = {
+                                x: old ? old.x : p.x,
+                                y: old ? old.y : p.y,
+                                tx: p.x,
+                                ty: p.y,
+                                name: p.name,
+                                color: p.color
+                            };
+                        }
+                        dots = next;
+                    } else if (data.type === "chat") {
+                        line(data);
+                    } else if (data.type === "disconnected" || data.type === "error") {
+                        live = false;
+                        send.disabled = true;
+                        keys = {};
+                        label.textContent = data.message || "Disconnected. Reconnecting...";
+                    }
+                });
+                document.getElementById("say").onsubmit = function (event) {
+                    event.preventDefault();
+                    if (!live || !msg.value.trim()) {
+                        return;
+                    }
+                    post({ type: "chat", text: msg.value.trim().slice(0, 180) });
+                    msg.value = "";
+                };
+                window.addEventListener("keydown", function (event) {
+                    if (event.target.tagName === "INPUT") {
+                        return;
+                    }
+                    if ([37, 38, 39, 40, 32].indexOf(event.keyCode) >= 0) {
+                        event.preventDefault();
+                    }
+                    keys[event.keyCode] = true;
+                });
+                window.addEventListener("keyup", function (event) {
+                    delete keys[event.keyCode];
+                });
+                window.addEventListener("blur", clear);
+                document.addEventListener("visibilitychange", function () {
+                    if (document.hidden) {
+                        clear();
+                    }
+                });
+                msg.addEventListener("focus", clear);
+                nick.addEventListener("focus", clear);
+                room.addEventListener("focus", clear);
+                board.onclick = function () {
+                    board.focus();
+                };
+                window.addEventListener("pagehide", function () {
+                    post({ type: "leave" });
+                });
+                function frame(now) {
+                    var dt = prev ? Math.min(100, now - prev) : 16;
+                    prev = now;
+                    ctx.clearRect(0, 0, 800, 600);
+                    ctx.strokeStyle = "#e8edf2";
+                    ctx.lineWidth = 1;
+                    for (var x = 40; x < 800; x += 40) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, 0);
+                        ctx.lineTo(x, 600);
+                        ctx.stroke();
+                    }
+                    for (var y = 40; y < 600; y += 40) {
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(800, y);
+                        ctx.stroke();
+                    }
+                    var blend = 1 - Math.exp(-dt / 45);
+                    for (var who in dots) {
+                        if (!dots.hasOwnProperty(who)) {
+                            continue;
+                        }
+                        var p = dots[who];
+                        p.x += (p.tx - p.x) * blend;
+                        p.y += (p.ty - p.y) * blend;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+                        ctx.fillStyle = p.color;
+                        ctx.fill();
+                        if (who === id) {
+                            ctx.strokeStyle = "#263343";
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+                        }
+                        ctx.fillStyle = "#263343";
+                        ctx.font = "13px Arial";
+                        ctx.textAlign = "center";
+                        ctx.fillText(p.name, p.x, p.y - 21);
+                    }
+                    if (live && now - inputAt >= 80) {
+                        inputAt = now;
+                        post({
+                            type: "input",
+                            keys: {
+                                up: !!(keys[87] || keys[38]),
+                                down: !!(keys[83] || keys[40]),
+                                left: !!(keys[65] || keys[37]),
+                                right: !!(keys[68] || keys[39])
+                            }
+                        });
+                    }
+                    if (now - checkAt >= 1000) {
+                        checkAt = now;
+                        if (live && (!peer || peer.closed)) {
+                            live = false;
+                            send.disabled = true;
+                            keys = {};
+                            label.textContent = "Connection tab closed. Press Connect to rejoin.";
+                        }
+                    }
+                    requestAnimationFrame(frame);
+                }
+                requestAnimationFrame(frame);
+            })();
+        </script>
+    </body>
+</html>
