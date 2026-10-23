@@ -164,7 +164,7 @@
                         label.textContent = "The game was closed. You can close this tab.";
                         return;
                     }
-                    if (!origin) {
+                    if (!room) {
                         peer.postMessage(
                             { channel: "ka-room-v1", key: key, data: { type: "ready" } },
                             "https://www.kasandbox.org"

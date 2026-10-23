@@ -20,7 +20,7 @@ async function setup(t) {
     t.after(() => app.close());
     return { app, origin: "http://127.0.0.1:" + app.server.address().port };
 }
-function helper(origin, name, room) {
+function helper(origin, name, room, join = true) {
     const page = new JSDOM(fs.readFileSync("public/connect.html", "utf8"), {
         url: origin + "/connect#" + "a".repeat(32),
         runScripts: "outside-only"
@@ -41,7 +41,7 @@ function helper(origin, name, room) {
             })
         );
     }
-    send({ type: "join", name, room });
+    if (join) send({ type: "join", name, room });
     return {
         w,
         received,
@@ -146,4 +146,14 @@ test("public game and companion are served while the canceled endpoint stays dis
     const ws = new WebSocket(origin.replace("http:", "ws:") + "/battlefront");
     ws.on("error", () => {});
     await new Promise((resolve) => ws.once("close", resolve));
+});
+
+test("early input does not stop the companion handshake", async (t) => {
+    const { origin } = await setup(t);
+    const a = helper(origin, "One", "ROOM", false);
+    t.after(() => a.close());
+    a.send({ type: "input", keys: {} });
+    await until(() => a.received.some((p) => p.type === "ready"));
+    a.send({ type: "join", name: "One", room: "ROOM" });
+    await until(() => a.received.some((p) => p.type === "welcome"));
 });
