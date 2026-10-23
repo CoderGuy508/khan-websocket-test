@@ -85,7 +85,7 @@
         input.style.cssText = 'box-sizing:border-box;width:' + width + 'px;max-width:80vw;padding:7px;border:1px solid #7198ad77;border-radius:4px;background:#09131ed0;color:#dceeff;font:12px Arial,sans-serif';
         panel.appendChild(input);return input;
     }
-    const endpoint = field('WebSocket server', 'wss://your-service.onrender.com/ws', GM_getValue('server', ''), 270);
+    const endpoint = field('WebSocket server', 'wss://your-service.onrender.com/ws', GM_getValue('server', 'wss://coderguy-khan-websocket-test.onrender.com/ws'), 270);
     const room = field('Room', 'LOBBY', GM_getValue('room', 'LOBBY'), 90);
     const name = field('Player name', 'Name', GM_getValue('name', 'Player'), 100);
     room.maxLength = 24;name.maxLength = 16;

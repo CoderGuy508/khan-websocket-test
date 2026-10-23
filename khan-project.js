@@ -7,18 +7,35 @@ var multiplayerProbe = {
     ping: 0,
     serverTick: 0,
     players: [],
-    input: { up: false, down: false, left: false, right: false }
+    input: {
+        up: false,
+        down: false,
+        left: false,
+        right: false
+    }
 };
 var dotPositions = {};
 var lastDrawMs = 0;
 var updateTestKey = function(code, down) {
-    if (code === 87 || code === 38) { multiplayerProbe.input.up = down; }
-    if (code === 83 || code === 40) { multiplayerProbe.input.down = down; }
-    if (code === 65 || code === 37) { multiplayerProbe.input.left = down; }
-    if (code === 68 || code === 39) { multiplayerProbe.input.right = down; }
+    if (code === 87 || code === 38) {
+        multiplayerProbe.input.up = down;
+    }
+    if (code === 83 || code === 40) {
+        multiplayerProbe.input.down = down;
+    }
+    if (code === 65 || code === 37) {
+        multiplayerProbe.input.left = down;
+    }
+    if (code === 68 || code === 39) {
+        multiplayerProbe.input.right = down;
+    }
 };
-keyPressed = function() { updateTestKey(keyCode, true); };
-keyReleased = function() { updateTestKey(keyCode, false); };
+keyPressed = function() {
+    updateTestKey(keyCode, true);
+};
+keyReleased = function() {
+    updateTestKey(keyCode, false);
+};
 draw = function() {
     var now = millis();
     var elapsed = lastDrawMs ? constrain(now - lastDrawMs, 0, 100) : 0;
@@ -30,15 +47,22 @@ draw = function() {
     scale(viewScale);
     stroke(100, 160, 210, 25);
     strokeWeight(1);
-    for (var gridX = 0; gridX <= 800; gridX += 40) { line(gridX, 0, gridX, 600); }
-    for (var gridY = 0; gridY <= 600; gridY += 40) { line(0, gridY, 800, gridY); }
+    for (var gridX = 0; gridX <= 800; gridX += 40) {
+        line(gridX, 0, gridX, 600);
+    }
+    for (var gridY = 0; gridY <= 600; gridY += 40) {
+        line(0, gridY, 800, gridY);
+    }
     noFill();
     stroke(100, 180, 240, 100);
     rect(0, 0, 800, 600);
     var nextDots = {};
     for (var playerIndex = 0; playerIndex < multiplayerProbe.players.length; playerIndex++) {
         var player = multiplayerProbe.players[playerIndex];
-        var previous = dotPositions[player.id] || { x: player.x, y: player.y };
+        var previous = dotPositions[player.id] || {
+            x: player.x,
+            y: player.y
+        };
         previous.x = lerp(previous.x, player.x, 1 - exp(-elapsed / 65));
         previous.y = lerp(previous.y, player.y, 1 - exp(-elapsed / 65));
         nextDots[player.id] = previous;
