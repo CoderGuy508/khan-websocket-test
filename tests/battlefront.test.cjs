@@ -156,3 +156,25 @@ test('old invites reopen rooms after a relay restart and elect a host after ever
     assert([...returning.saved.values()].at(-1).hostToken);
     assert.equal(returning.state().invite, invite);
 });
+
+test('public server list, shared joins, host status and automatic ownership work without invites', async t => {
+    const {address} = await setup(t);
+    const host=bridge(address), guest=bridge(address), browser=bridge(address);
+    t.after(()=>{host.close();guest.close();browser.close();});
+    browser.dispatch({kind:'request',request:{type:'list'}});
+    await until(()=>browser.state()?.servers?.length===3);
+    assert.equal(browser.state().servers[0].players,0);
+    host.dispatch({kind:'request',request:{type:'server',server:'BFPUBLIC01',name:'Host'}});
+    await until(()=>host.state()?.connected && host.state()?.host);
+    guest.dispatch({kind:'request',request:{type:'server',server:'BFPUBLIC01',name:'Guest'}});
+    await until(()=>guest.state()?.connected && host.state()?.peers?.length===2);
+    assert(!guest.state().host);assert.equal(host.page.location.hash,'');assert.equal(guest.page.location.hash,'');
+    const world={stage:'Play',map:'Jakku',mode:'Battle Royale',phase:'live',round:3};
+    host.dispatch({kind:'send',packet:{kind:'world',data:world}});
+    await until(()=>guest.frames.some(p=>p.kind==='packet'));
+    assert.deepEqual(guest.frames.find(p=>p.kind==='packet').packet.data,world);
+    browser.dispatch({kind:'request',request:{type:'list'}});
+    await until(()=>browser.state()?.servers?.[0]?.players===2);
+    assert.equal(browser.state().servers[0].map,'Jakku');assert.equal(browser.state().servers[0].mode,'Battle Royale');
+    host.close();await until(()=>guest.state()?.host);
+});

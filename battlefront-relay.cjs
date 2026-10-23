@@ -4,6 +4,7 @@ const {WebSocketServer, WebSocket} = require('ws');
 function attachBattlefrontRelay(server, options = {}) {
     const rooms = new Map();
     const clients = new Set();
+    const fronts = ["BFPUBLIC01", "BFPUBLIC02", "BFPUBLIC03"];
     const sockets = new WebSocketServer({noServer: true, maxPayload: 262144, perMessageDeflate: false});
     const roomLifetime = options.roomLifetime || 300000;
     const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -55,6 +56,12 @@ function attachBattlefrontRelay(server, options = {}) {
             let data;
             try { data = JSON.parse(bytes.toString()); } catch (_) { ws.close(1007, 'Bad JSON'); return; }
             if (!data || Array.isArray(data) || typeof data !== 'object') return;
+            if (data.type === 'list') {
+                send(client, {type: 'list', servers: fronts.map((id, i) => {
+                    const room = rooms.get(id);
+                    return {id, players: room ? room.members.size : 0, map: room?.info?.map || ['Kashyyyk', 'Jakku', 'Star Destroyer'][i], mode: room?.info?.mode || (i === 1 ? 'Battle Royale' : 'Team Deathmatch'), phase: room?.info?.phase || 'idle'};
+                })}); return;
+            }
             if (data.type === 'ping') { send(client, {type: 'pong', at: Number.isFinite(data.at) ? data.at : 0}); return; }
             if (data.type === 'join' && !client.room) {
                 if (!/^[A-Z0-9]{6,16}$/.test(data.room || '') || !token(data.proof)) { reject('Invalid invite'); return; }
@@ -99,6 +106,10 @@ function attachBattlefrontRelay(server, options = {}) {
                 roster(room); return;
             }
             const room = client.room;
+            if (room && data.type === 'status' && client.id === room.hostId) {
+                if (['Kashyyyk', 'Jakku', 'Star Destroyer'].includes(data.map) && ['Team Deathmatch', 'Battle Royale'].includes(data.mode) && ['countdown', 'live', 'ending'].includes(data.phase)) room.info = {map: data.map, mode: data.mode, phase: data.phase};
+                return;
+            }
             if (!room || data.type !== 'relay' || room.members.get(client.id) !== client) return;
             if (!Number.isSafeInteger(data.sequence) || data.sequence <= client.sequence || data.epoch !== room.epoch || typeof data.iv !== 'string' || !/^[A-Za-z0-9+/]{16}$/.test(data.iv) || typeof data.cipher !== 'string' || data.cipher.length > 240000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.cipher)) return;
             const host = client.id === room.hostId;

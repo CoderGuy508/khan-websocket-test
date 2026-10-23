@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Battlefront V3 Multiplayer
 // @namespace    https://github.com/CoderGuyxLemoncelloJr/Battlefront
-// @version      0.1.1
+// @version      0.2.0
 // @description  The no-UI WebSocket bridge for the Battlefront multiplayer test.
 // @author       Coder Guy
 // @license      MIT
@@ -17,16 +17,13 @@
 // ==/UserScript==
 
 /*
-hey, here's the setup:
-1. everyone installs Tampermonkey, then this script.
-2. open https://www.khanacademy.org/computer-programming/pjs/5684189710893056?editor=no. pick a name and hit Host.
-3. click the HOST label at the top, hit Copy invite, and send that link to your friends.
-4. they open it, pick a name, and hit Join. the host picks the map and starts from Play.
+install this, then open Battlefront with ?editor=no.
+pick Multiplayer BETA, hit Play, and join a server. that's it.
+everyone needs the script. Singleplayer works without it.
 
-that's it. WASD moves, click uses your held item, 1-5 swaps slots.
-the script adds zero buttons or panels to the page. the game handles that.
-one player runs the match; Render just passes encrypted messages around.
-if the host leaves, someone still in the room takes over. keep the invite private.
+servers rotate maps and modes after each round. the first player runs
+the match; if they leave, someone else takes over. Render passes the
+messages around over WSS. public servers are open to everyone.
 */
 
 (function() {
@@ -119,6 +116,8 @@ if the host leaves, someone still in the room takes over. keep the invite privat
     let encrypting = false;
     let pendingWorld;
     let pendingInput;
+    let listWs;
+    let statusAt = 0;
     let reading = Promise.resolve();
     const received = new Map();
     const state = {connected: false, host: false, id: '', hostId: '', epoch: 0, peers: [], ping: 0, invite: '', message: 'Ready'};
@@ -130,12 +129,33 @@ if the host leaves, someone still in the room takes over. keep the invite privat
         if (auth) GM_setValue(storageKey(auth.room), auth);
     };
     const inviteUrl = () => 'https://www.khanacademy.org/computer-programming/pjs/' + projectId + '?editor=no#bf=' + auth.room + '.' + auth.secret;
+    function listServers() {
+        if (listWs && listWs.readyState < 2) return;
+        const ws = new WebSocket(endpoint); listWs = ws;
+        const timer = setTimeout(() => ws.close(), 12000);
+        ws.onopen = () => ws.send(JSON.stringify({type: 'list'}));
+        ws.onmessage = event => {
+            let data; try { data = JSON.parse(event.data); } catch (_) { return; }
+            if (data.type === 'list' && Array.isArray(data.servers)) {
+                state.servers = data.servers; publish(); ws.close();
+            }
+        };
+        ws.onerror = () => { state.message = 'Waking the server...'; publish(); };
+        ws.onclose = () => { clearTimeout(timer); if (listWs === ws) listWs = null; };
+    }
     async function configure(request) {
+        if (request.type === 'list') { listServers(); return; }
+        if (request.type === 'server') {
+            if (!['BFPUBLIC01', 'BFPUBLIC02', 'BFPUBLIC03'].includes(request.server)) return;
+            const secret = urlToken(await digest('battlefront-public-v1:' + request.server));
+            request = {...request, type: 'join', invite: request.server + '.' + secret};
+            state.server = request.server;
+        }
         if (request.type === 'copy') {
             if (auth) { GM_setClipboard(inviteUrl(), 'text'); state.message = 'Invite copied'; publish(); }
             return;
         }
-        if (request.type === 'leave') { stop(); return; }
+        if (request.type === 'leave') { stop(); auth = null; state.invite = ''; history.replaceState(null, '', location.pathname + '?editor=no'); return; }
         if (request.type !== 'create' && request.type !== 'join') return;
         stop();
         const name = String(request.name || 'Player').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 16) || 'Player';
@@ -149,7 +169,7 @@ if the host leaves, someone still in the room takes over. keep the invite privat
         }
         key = await crypto.subtle.importKey('raw', await digest('battlefront-key:' + auth.secret), 'AES-GCM', false, ['encrypt', 'decrypt']);
         auth.proof = urlToken(await digest('battlefront-room:' + auth.secret));
-        state.invite = inviteUrl(); history.replaceState(null, '', state.invite); save(); active = true; attempt = 0; connect();
+        state.invite = inviteUrl(); history.replaceState(null, '', state.server ? location.pathname + '?editor=no' : state.invite); save(); active = true; attempt = 0; connect();
     }
     function stop() {
         active = false; clearTimeout(retry); retry = null;
@@ -243,7 +263,13 @@ if the host leaves, someone still in the room takes over. keep the invite privat
             publish();
         } else if (packet.kind === 'request') configure(packet.request || {}).catch(() => { state.message = 'Could not open the room'; publish(); });
         else if (packet.kind === 'send' && packet.packet && state.connected) {
-            if (state.host && packet.packet.kind === 'world') pendingWorld = packet.packet;
+            if (state.host && packet.packet.kind === 'world') {
+                pendingWorld = packet.packet;
+                if (socket && socket.readyState === WebSocket.OPEN && Date.now() - statusAt > 1000) {
+                    statusAt = Date.now(); const world = packet.packet.data;
+                    socket.send(JSON.stringify({type: 'status', map: world.map, mode: world.mode, phase: world.phase}));
+                }
+            }
             if (!state.host && packet.packet.kind === 'input') pendingInput = packet.packet;
             flush();
         }
