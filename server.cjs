@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
+const { attachBattlefrontRelay } = require('./battlefront-relay.cjs');
 
 function createTestServer(options = {}) {
     const rooms = new Map();
@@ -15,14 +16,16 @@ function createTestServer(options = {}) {
             res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: [...rooms.values()].reduce((n, r) => n + r.size, 0), tick }));
             return;
         }
-        const routes = { '/': ['index.html', 'text/html; charset=utf-8'], '/bridge.user.js': ['bridge.user.js', 'text/javascript; charset=utf-8'] };
+        const routes = { '/': ['index.html', 'text/html; charset=utf-8'], '/bridge.user.js': ['bridge.user.js', 'text/javascript; charset=utf-8'], '/battlefront.user.js': ['battlefront.user.js', 'text/javascript; charset=utf-8'] };
         const route = routes[req.url && req.url.split('?')[0]];
         if (!route) { res.writeHead(404);res.end('Not found');return; }
         res.writeHead(200, { 'Content-Type': route[1], 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
         fs.createReadStream(path.join(__dirname, 'public', route[0])).pipe(res);
     });
     const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
+    const battlefront = attachBattlefrontRelay(server);
     server.on('upgrade', (req, socket, head) => {
+        if (req.url === '/battlefront') { return; }
         if (req.url !== '/ws' || clients.size >= 128) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');return; }
         sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws));
     });
@@ -99,6 +102,7 @@ function createTestServer(options = {}) {
     }, 15000);
     async function close() {
         clearInterval(interval);clearInterval(heartbeat);
+        await battlefront.close();
         for (const client of clients) { client.ws.terminate(); }
         await new Promise(resolve => sockets.close(resolve));
         await new Promise(resolve => server.close(resolve));
