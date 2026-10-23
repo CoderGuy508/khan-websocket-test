@@ -135,3 +135,24 @@ test('real bridges encrypt both directions, add no UI, copy invites and transfer
     guest.dispatch({kind: 'send', packet: {kind: 'world', data: {round: 2, migrated: true}}});
     assert(!guest.state().invite.includes([...guest.saved.values()].at(-1).hostToken));
 });
+
+test('old invites reopen rooms after a relay restart and elect a host after everyone leaves', async t => {
+    const {address, relay} = await setup(t);
+    const host = bridge(address), guest = bridge(address), returning = bridge(address);
+    t.after(() => { host.close(); guest.close(); returning.close(); });
+    host.dispatch({kind: 'request', request: {type: 'create', name: 'Host'}});
+    await until(() => host.state()?.connected);
+    const invite = host.state().invite;
+    host.close();
+    await until(() => [...relay.rooms.values()][0].members.size === 0);
+    guest.dispatch({kind: 'request', request: {type: 'join', name: 'Guest', invite}});
+    await until(() => guest.state()?.connected && guest.state()?.host);
+    assert([...guest.saved.values()].at(-1).hostToken);
+    guest.close();
+    await until(() => [...relay.rooms.values()][0].members.size === 0);
+    relay.rooms.clear();
+    returning.dispatch({kind: 'request', request: {type: 'join', name: 'Returning', invite}});
+    await until(() => returning.state()?.connected && returning.state()?.host);
+    assert([...returning.saved.values()].at(-1).hostToken);
+    assert.equal(returning.state().invite, invite);
+});

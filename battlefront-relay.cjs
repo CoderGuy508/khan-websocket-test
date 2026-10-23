@@ -61,9 +61,12 @@ function attachBattlefrontRelay(server, options = {}) {
                 const name = typeof data.name === 'string' ? data.name.replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 16) : '';
                 if (!name) { reject('Pick a name'); return; }
                 let room = rooms.get(data.room);
+                let assignedHostToken = '';
                 if (!room) {
-                    if (!data.create || !token(data.hostToken) || rooms.size >= 32) { reject('Room unavailable'); return; }
-                    room = {id: data.room, proof: hash(data.proof), hostToken: hash(data.hostToken), hostId: client.id, epoch: 1, members: new Map(), reservations: new Map(), changedAt: now};
+                    if (rooms.size >= 32) { reject('Server is full. Try again shortly.'); return; }
+                    if (data.create && !token(data.hostToken)) { reject('Invalid host'); return; }
+                    assignedHostToken = data.create ? data.hostToken : crypto.randomBytes(32).toString('base64url');
+                    room = {id: data.room, proof: hash(data.proof), hostToken: hash(assignedHostToken), hostId: client.id, epoch: 1, members: new Map(), reservations: new Map(), changedAt: now};
                     rooms.set(room.id, room);
                 } else {
                     if (room.proof !== hash(data.proof)) { reject('Invalid invite'); return; }
@@ -81,6 +84,10 @@ function attachBattlefrontRelay(server, options = {}) {
                     }
                     if (room.members.size >= 8) { reject('Room is full'); return; }
                 }
+                if (!room.members.size && client.id !== room.hostId) {
+                    assignedHostToken = crypto.randomBytes(32).toString('base64url');
+                    room.hostId = client.id; room.hostToken = hash(assignedHostToken); room.epoch++;
+                }
                 const resumeToken = crypto.randomBytes(32).toString('base64url');
                 for (const [key, id] of room.reservations) if (id === client.id) room.reservations.delete(key);
                 room.reservations.set(hash(resumeToken), client.id);
@@ -88,6 +95,7 @@ function attachBattlefrontRelay(server, options = {}) {
                 client.name = name; client.room = room; room.members.set(client.id, client); room.changedAt = now;
                 clearTimeout(joinTimer);
                 send(client, {type: 'welcome', id: client.id, hostId: room.hostId, host: client.id === room.hostId, epoch: room.epoch, resumeToken});
+                if (assignedHostToken) send(client, {type: 'promote', hostToken: assignedHostToken, hostId: client.id, epoch: room.epoch});
                 roster(room); return;
             }
             const room = client.room;
