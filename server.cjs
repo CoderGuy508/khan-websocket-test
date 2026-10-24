@@ -19,7 +19,7 @@ function createTestServer(options = {}) {
         "#fff289",
         "#b6b9ff"
     ];
-    const admin = createAdmin({ rooms, clients, send, options });
+    const admin = createAdmin({ rooms, clients, send, options, notice });
     let tick = 0;
     const server = http.createServer((req, res) => {
         if ((req.url || "").startsWith("/admin/api/")) {
@@ -123,6 +123,10 @@ function createTestServer(options = {}) {
         }
         ws.send(JSON.stringify(data));
     }
+    function notice(room, text, kind = "info") {
+        const msg = { type: "notice", time: Date.now(), mid: crypto.randomUUID(), name: "Server", text, kind };
+        for (const peer of room.values()) send(peer.ws, msg);
+    }
     function leave(client) {
         if (!client.room) {
             return;
@@ -130,6 +134,7 @@ function createTestServer(options = {}) {
         const room = rooms.get(client.room);
         if (room) {
             room.delete(client.id);
+            if (!client.moderated) notice(room, client.name + " left.", "leave");
             if (!room.size && !room.ink.length && !room.kept) {
                 rooms.delete(client.room);
             }
@@ -250,6 +255,7 @@ function createTestServer(options = {}) {
                     drawing: []
                 });
                 syncDrawing(client, room.ink);
+                notice(room, name + " joined.", "join");
             } else if (data.type === "input" && client.room) {
                 const input = data.keys;
                 if (!input || typeof input !== "object") {

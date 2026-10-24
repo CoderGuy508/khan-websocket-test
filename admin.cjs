@@ -2,7 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { isIP } = require("node:net");
 
-function createAdmin({ rooms, clients, send, options })
+function createAdmin({ rooms, clients, send, options, notice })
 {
     const key = options.adminKey ?? process.env.ADMIN_KEY ?? "";
     const file = options.banFile ?? process.env.BAN_FILE ?? "admin-bans.json";
@@ -80,6 +80,9 @@ function createAdmin({ rooms, clients, send, options })
 
     function stop(client, message)
     {
+        client.moderated = true;
+        const room = rooms.get(client.room);
+        if (room) notice(room, client.name + (message.startsWith("IP banned") ? " was banned." : " was kicked."), "moderation");
         send(client.ws, { type: "error", message });
         client.ws.close(4002, message);
     }
@@ -143,7 +146,9 @@ function createAdmin({ rooms, clients, send, options })
             if (!bans.some(b => b.ip === data.ip)) save([...bans, { ip: data.ip, time: Date.now() }]);
             for (const c of clients) if (c.ip === data.ip) stop(c, "IP banned by admin");
         } else if (data.action === "unban") {
+            const exists = bans.some(b => b.ip === data.ip);
             save(bans.filter(b => b.ip !== data.ip));
+            if (exists) for (const target of rooms.values()) notice(target, "An IP ban was removed.", "info");
         } else if (data.action === "restore") {
             const item = trash.find(t => t.id === data.id);
             const target = item && rooms.get(item.room);
@@ -157,6 +162,7 @@ function createAdmin({ rooms, clients, send, options })
                 target.chat = target.chat.sort((a, b) => a.time - b.time).slice(-30);
                 broadcast(target, { type: "chat_reset", chat: target.chat });
             }
+            notice(target, "Admin restored " + (item.kind === "drawing" ? "a drawing." : "chat messages."), "info");
             trash.splice(trash.indexOf(item), 1);
         } else if (!room) {
             return json(res, 404, { error: "Room is no longer available" });
@@ -167,21 +173,25 @@ function createAdmin({ rooms, clients, send, options })
             room.ink = room.ink.filter(op => op.id !== data.id);
             room.hidden.add(data.id);
             broadcast(room, { type: "undo", id: data.id });
+            notice(room, "Admin removed a drawing.", "moderation");
         } else if (data.action === "board") {
             if (room.ink.length) removed(data.room, "drawing", room.ink);
             for (const op of room.ink) room.hidden.add(op.id);
             room.ink = [];
             broadcast(room, { type: "wipe" });
+            notice(room, "Admin cleared the whole board.", "moderation");
         } else if (data.action === "comment") {
             const messages = room.chat.filter(m => m.mid === data.id);
             if (!messages.length) return json(res, 404, { error: "Comment not found" });
             removed(data.room, "comment", messages);
             room.chat = room.chat.filter(m => m.mid !== data.id);
             broadcast(room, { type: "chat_delete", mid: data.id });
+            notice(room, "Admin removed a message.", "moderation");
         } else if (data.action === "chat") {
             if (room.chat.length) removed(data.room, "comment", room.chat);
             room.chat = [];
             broadcast(room, { type: "chat_reset", chat: [] });
+            notice(room, "Admin cleared the chat.", "moderation");
         } else return json(res, 400, { error: "Unknown action" });
         return json(res, 200, { ok: true });
     }

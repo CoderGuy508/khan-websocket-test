@@ -400,6 +400,9 @@
                 var row = document.createElement("p"),
                     name = document.createElement("strong");
                 row.dataset.mid = data.mid || "";
+                row.dataset.kind = data.kind || "";
+                var colors = { join: "#22834b", leave: "#69768a", moderation: "#bf4933", info: "#356bc4" };
+                if (colors[data.kind]) row.style.color = colors[data.kind];
                 name.textContent = data.name + ": ";
                 row.appendChild(name);
                 row.appendChild(document.createTextNode(data.text));
@@ -454,7 +457,7 @@
                         var history = [];
                         Array.prototype.forEach.call(chat.children, function(row) {
                             var name = row.querySelector("strong");
-                            if (name) history.push({ name: name.textContent.slice(0, -2), text: row.lastChild.textContent, mid: row.dataset.mid });
+                            if (name) history.push({ name: name.textContent.slice(0, -2), text: row.lastChild.textContent, mid: row.dataset.mid, kind: row.dataset.kind });
                         });
                         sendFull({ type: "welcome", id: id, room: "LOBBY", chat: history, drawing: [] });
                         sendFull({ type: "drawing_start" });
@@ -553,7 +556,7 @@
                 } else if (data.type === "chat_reset") {
                     chat.textContent = "";
                     (data.chat || []).forEach(line);
-                } else if (data.type === "chat") {
+                } else if (data.type === "chat" || data.type === "notice") {
                     line(data);
                 } else if (data.type === "disconnected" || data.type === "error") {
                     live = false;
