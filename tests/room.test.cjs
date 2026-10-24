@@ -109,7 +109,7 @@ test("game validates its helper and displays chat as plain text", () => {
                 this.closed = true;
             }
         };
-    w.HTMLCanvasElement.prototype.getContext = () => ({});
+    w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {} });
     w.requestAnimationFrame = () => {};
     let url;
     w.open = (value) => {
@@ -156,4 +156,39 @@ test("early input does not stop the companion handshake", async (t) => {
     await until(() => a.received.some((p) => p.type === "ready"));
     a.send({ type: "join", name: "One", room: "ROOM" });
     await until(() => a.received.some((p) => p.type === "welcome"));
+});
+
+test("shared drawing relays, restores on join, isolates rooms and enforces stroke ownership", async (t) => {
+    const { origin, app } = await setup(t);
+    const a = helper(origin, "Painter", "PAINT");
+    const b = helper(origin, "Eraser", "PAINT");
+    const c = helper(origin, "Other", "ELSEWHERE");
+    const peers = [a, b, c];
+    t.after(() => peers.forEach(p => p.close()));
+    await until(() => peers.every(p => p.received.some(m => m.type === "welcome")));
+    const first = { type: "draw", id: "a".repeat(16), color: "#397be5", size: 8, erase: false, points: [[10, 20], [30, 40]] };
+    a.send(first);
+    await until(() => b.received.some(m => m.type === "draw"));
+    assert.equal(c.received.filter(m => m.type === "draw").length, 0);
+    assert.equal(JSON.stringify(b.received.find(m => m.type === "draw").points), JSON.stringify(first.points));
+    b.send({ ...first, points: [[100, 200]] });
+    b.send({ ...first, id: "b".repeat(16), erase: true, points: [[-10, 900]] });
+    await until(() => a.received.some(m => m.type === "draw" && m.id === "b".repeat(16)));
+    assert.equal(app.rooms.get("PAINT").ink.length, 2);
+    assert.deepEqual(app.rooms.get("PAINT").ink[1].points, [[0, 600]]);
+    const d = helper(origin, "Late", "PAINT");
+    peers.push(d);
+    await until(() => d.received.some(m => m.type === "welcome"));
+    assert.equal(d.received.find(m => m.type === "welcome").drawing.length, 2);
+    a.send({ type: "undo" });
+    await until(() => b.received.some(m => m.type === "undo"));
+    assert.equal(app.rooms.get("PAINT").ink.length, 1);
+    assert.equal(app.rooms.get("PAINT").ink[0].id, "b".repeat(16));
+    b.send({ type: "wipe" });
+    await until(() => d.received.some(m => m.type === "wipe"));
+    assert.equal(app.rooms.get("PAINT").ink.length, 0);
+    a.send({ ...first, size: 100 });
+    a.send({ ...first, points: [[null, 10]] });
+    await pause(60);
+    assert.equal(app.rooms.get("PAINT").ink.length, 0);
 });

@@ -1,347 +1,564 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <!-- Imagenator -->
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Multiplayer Room</title>
-        <style>
-            * {
-                box-sizing: border-box;
-            }
-            body {
-                margin: 0;
-                padding: 12px;
-                font-family: Arial, sans-serif;
-                font-size: 14px;
-                line-height: 1.4;
-                color: #263343;
-                background: #fff;
-            }
-            main {
-                max-width: 800px;
-                margin: 0 auto;
-            }
-            form {
-                display: flex;
+<!DOCTYPE html>
+<!--THE SERVER IS A FREE RENDER.COM SERVER!!! IT MAY TAKE A MINUTE TO START UP AFTER 15 MINUTEWS OF INACTIVITY. IF YOU SEE A PAGE THAT SAYS "WELCOME TO RENDER", THAT IS JUST THE WEBSITE WAKING UP THE SERVER. NOTHING TO WORRY ABOUT! PLEASE BE RESPECTFUL IN THE CHAT!!-->
+<html>
 
-                margin: 0 0 8px;
+<head>
+    <!-- Imagenator -->
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multiplayer Room WebSocket</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 12px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.4;
+            color: #263343;
+            background: #fff;
+        }
+
+        main {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        form {
+            display: flex;
+            margin: 0 0 8px;
+        }
+
+        input,
+        button {
+            min-width: 0;
+            padding: 8px;
+            border: 1px solid #cbd2da;
+            border-radius: 4px;
+            font: inherit;
+        }
+
+        input {
+            margin-right: 6px;
+            flex: 1;
+            width: 0;
+        }
+
+        button {
+            background: #f0f3f6;
+            color: #263343;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+
+        #state {
+            margin: 0 0 8px;
+            color: #647184;
+            font-size: 12px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #f5f7fa;
+            border: 1px solid #dce2e9;
+        }
+
+        #tools {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        #tools button[aria-pressed="true"] {
+            color: #fff;
+            background: #356bc4;
+            border-color: #356bc4;
+        }
+
+        #tools input {
+            flex: none;
+            width: auto;
+            margin: 0;
+        }
+
+        #color {
+            width: 36px !important;
+            height: 34px;
+            padding: 3px;
+        }
+
+        #size {
+            width: 80px !important;
+            padding: 0;
+        }
+
+        #game.painting {
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        #chat {
+            height: 96px;
+            overflow-y: auto;
+            margin: 8px 0;
+            padding: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        #chat p {
+            margin: 0 0 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <form id="join">
+            <input id="nick" maxlength="16" placeholder="Name" value="Player" aria-label="Name" />
+            <button id="connect">Connect</button>
+        </form>
+        <p id="state">WASD or arrows to move. Connect opens a tab; keep it open.</p>
+        <div id="tools" role="toolbar" aria-label="Coloring tools">
+            <button id="move" type="button" aria-pressed="true">Move</button>
+            <button id="brush" type="button" aria-pressed="false">Brush</button>
+            <button id="eraser" type="button" aria-pressed="false">Eraser</button>
+            <input id="color" type="color" value="#397be5" aria-label="Brush color" title="Brush color" />
+            <input id="size" type="range" min="1" max="32" value="8" aria-label="Brush size" title="Brush size" />
+            <output id="width" for="size">8</output>
+            <button id="undo" type="button" disabled>Undo</button>
+            <button id="wipe" type="button" disabled>Clear</button>
+        </div>
+        <canvas id="game" width="800" height="600" tabindex="0" aria-label="Multiplayer play area"></canvas>
+        <div id="chat" role="log" aria-live="polite"></div>
+        <form id="say">
+            <input id="msg" maxlength="180" placeholder="Send a message..." aria-label="Message" autocomplete="off" />
+            <button id="send" disabled>Send</button>
+        </form>
+    </main>
+    <script>
+        (function() {
+            "use strict";
+            var host = "https://khan-multiplayer-room.onrender.com";
+            var board = document.getElementById("game"),
+                ctx = board.getContext("2d");
+            var label = document.getElementById("state"),
+                chat = document.getElementById("chat");
+            var nick = document.getElementById("nick"),
+                msg = document.getElementById("msg");
+            var button = document.getElementById("connect"),
+                send = document.getElementById("send");
+            var peer,
+                key = "",
+                id = "",
+                live = false,
+                keys = {},
+                dots = {},
+                prev = 0,
+                inputAt = 0,
+                checkAt = 0;
+
+            var color = document.getElementById("color"),
+                size = document.getElementById("size"),
+                undo = document.getElementById("undo"),
+                wipe = document.getElementById("wipe");
+            var paint = document.createElement("canvas"),
+                ink = paint.getContext("2d"),
+                mode = "move",
+                strokes = [],
+                stroke = null,
+                pointer = null,
+                paintAt = 0;
+            paint.width = board.width;
+            paint.height = board.height;
+
+            function tool(name) {
+                finish();
+                mode = name;
+                board.classList.toggle("painting", name !== "move");
+                ["move", "brush", "eraser"].forEach(function(id) {
+                    document.getElementById(id).setAttribute("aria-pressed", String(id === name));
+                });
+                board.focus();
             }
-            input,
-            button {
-                min-width: 0;
-                padding: 8px;
-                border: 1px solid #cbd2da;
-                border-radius: 4px;
-                font: inherit;
-            }
-            input {
-                margin-right: 6px;
-                flex: 1;
-                width: 0;
-            }
-            button {
-                background: #f0f3f6;
-                color: #263343;
-                cursor: pointer;
-            }
-            button:disabled {
-                cursor: default;
-                opacity: 0.55;
-            }
-            #state {
-                margin: 0 0 8px;
-                color: #647184;
-                font-size: 12px;
-            }
-            canvas {
-                display: block;
-                width: 100%;
-                height: auto;
-                background: #f5f7fa;
-                border: 1px solid #dce2e9;
-            }
-            #chat {
-                height: 96px;
-                overflow-y: auto;
-                margin: 8px 0;
-                padding: 4px;
-                overflow-wrap: anywhere;
-            }
-            #chat p {
-                margin: 0 0 3px;
-            }
-        </style>
-    </head>
-    <body>
-        <main>
-            <form id="join">
-                <input
-                    id="nick"
-                    maxlength="16"
-                    placeholder="Name"
-                    value="Player"
-                    aria-label="Name"
-                />
-                <input
-                    id="room"
-                    maxlength="24"
-                    placeholder="Room"
-                    value="LOBBY"
-                    aria-label="Room"
-                />
-                <button id="connect">Connect</button>
-            </form>
-            <p id="state">WASD or arrows to move. Connect opens a tab; keep it open.</p>
-            <canvas
-                id="game"
-                width="800"
-                height="600"
-                tabindex="0"
-                aria-label="Multiplayer play area"
-            ></canvas>
-            <div id="chat" role="log" aria-live="polite"></div>
-            <form id="say">
-                <input
-                    id="msg"
-                    maxlength="180"
-                    placeholder="Send a message..."
-                    aria-label="Message"
-                    autocomplete="off"
-                />
-                <button id="send" disabled>Send</button>
-            </form>
-        </main>
-        <script>
-            (function () {
-                "use strict";
-                var host = "https://khan-multiplayer-room.onrender.com";
-                var board = document.getElementById("game"),
-                    ctx = board.getContext("2d");
-                var label = document.getElementById("state"),
-                    chat = document.getElementById("chat");
-                var nick = document.getElementById("nick"),
-                    room = document.getElementById("room"),
-                    msg = document.getElementById("msg");
-                var button = document.getElementById("connect"),
-                    send = document.getElementById("send");
-                var peer,
-                    key = "",
-                    id = "",
-                    live = false,
-                    keys = {},
-                    dots = {},
-                    prev = 0,
-                    inputAt = 0,
-                    checkAt = 0;
-                function post(data) {
-                    if (peer && !peer.closed) {
-                        peer.postMessage({ channel: "ka-room-v1", key: key, data: data }, host);
-                    }
-                }
-                function clear() {
-                    keys = {};
-                    post({ type: "input", keys: {} });
-                }
-                function line(data) {
-                    var row = document.createElement("p"),
-                        name = document.createElement("strong");
-                    name.textContent = data.name + ": ";
-                    row.appendChild(name);
-                    row.appendChild(document.createTextNode(data.text));
-                    chat.appendChild(row);
-                    while (chat.children.length > 80) {
-                        chat.removeChild(chat.firstChild);
-                    }
-                    chat.scrollTop = chat.scrollHeight;
-                }
-                document.getElementById("join").onsubmit = function (event) {
-                    event.preventDefault();
-                    var name = nick.value
-                        .replace(/[^a-zA-Z0-9 _-]/g, "")
-                        .trim()
-                        .slice(0, 16);
-                    var code = room.value
-                        .trim()
-                        .toUpperCase()
-                        .replace(/[^A-Z0-9_-]/g, "")
-                        .slice(0, 24);
-                    if (!name || !code) {
-                        label.textContent = "Enter a name and room.";
-                        return;
-                    }
-                    post({ type: "leave" });
-                    if (peer && !peer.closed) {
-                        peer.close();
-                    }
-                    nick.value = name;
-                    room.value = code;
-                    var bytes = new Uint8Array(16);
-                    crypto.getRandomValues(bytes);
-                    key = "";
-                    for (var i = 0; i < bytes.length; i++) {
-                        key += ("0" + bytes[i].toString(16)).slice(-2);
-                    }
-                    peer = window.open(host + "/connect#" + key, "ka-room-" + key);
-                    live = false;
-                    id = "";
-                    dots = {};
-                    send.disabled = true;
-                    chat.textContent = "";
-                    clear();
-                    label.textContent = peer
-                        ? "Connecting... Keep the connection tab open."
-                        : "Allow the connection tab, then press Connect again.";
+
+            ["move", "brush", "eraser"].forEach(function(name) {
+                document.getElementById(name).onclick = function() {
+                    tool(name);
                 };
-                window.addEventListener("message", function (event) {
-                    var packet = event.data;
-                    if (
-                        event.origin !== host ||
-                        event.source !== peer ||
-                        !packet ||
-                        packet.channel !== "ka-room-v1" ||
-                        packet.key !== key
-                    ) {
-                        return;
+            });
+
+            color.onchange = function() {
+                tool("brush");
+            };
+
+            size.oninput = function() {
+                document.getElementById("width").textContent = size.value;
+            };
+
+            function point(event) {
+                var rect = board.getBoundingClientRect();
+                return {
+                    x: (event.clientX - rect.left - board.clientLeft) * board.width / board.clientWidth,
+                    y: (event.clientY - rect.top - board.clientTop) * board.height / board.clientHeight
+                };
+            }
+
+            function mark(s, a, b) {
+                ink.globalCompositeOperation = s.erase ? "destination-out" : "source-over";
+                ink.strokeStyle = s.color;
+                ink.fillStyle = s.color;
+                ink.lineWidth = s.size;
+                ink.lineCap = "round";
+                ink.lineJoin = "round";
+                if (a.x === b.x && a.y === b.y) {
+                    ink.beginPath();
+                    ink.arc(a.x, a.y, s.size / 2, 0, Math.PI * 2);
+                    ink.fill();
+                    return;
+                }
+                ink.beginPath();
+                ink.moveTo(a.x, a.y);
+                ink.lineTo(b.x, b.y);
+                ink.stroke();
+            }
+
+            function controls() {
+                undo.disabled = !live || !strokes.some(function(s) { return s.owner === id; });
+                wipe.disabled = !live || strokes.length === 0;
+            }
+
+            function paintOp(s) {
+                mark(s, { x: s.points[0][0], y: s.points[0][1] }, { x: s.points[0][0], y: s.points[0][1] });
+                for (var i = 1; i < s.points.length; i++) {
+                    mark(s, { x: s.points[i - 1][0], y: s.points[i - 1][1] }, { x: s.points[i][0], y: s.points[i][1] });
+                }
+            }
+
+            function redraw() {
+                ink.clearRect(0, 0, paint.width, paint.height);
+                strokes.forEach(paintOp);
+                controls();
+            }
+
+            function flush() {
+                if (!stroke || !stroke.points.length || !live) return;
+                post({ type: "draw", id: stroke.id, color: stroke.color, size: stroke.size, erase: stroke.erase, points: stroke.points });
+                stroke.last = stroke.points[stroke.points.length - 1];
+                stroke.points = [];
+            }
+
+            function finish() {
+                flush();
+                stroke = null;
+                var old = pointer;
+                pointer = null;
+                if (old !== null && board.hasPointerCapture(old)) board.releasePointerCapture(old);
+                controls();
+            }
+
+            board.addEventListener("pointerdown", function(event) {
+                if (!live || mode === "move" || event.button !== 0 || pointer !== null) return;
+                event.preventDefault();
+                board.focus();
+                pointer = event.pointerId;
+                board.setPointerCapture(pointer);
+                var bytes = crypto.getRandomValues(new Uint8Array(8)),
+                    sid = "";
+                for (var i = 0; i < bytes.length; i++) {
+                    sid += ("0" + bytes[i].toString(16)).slice(-2);
+                }
+                var p = point(event);
+                stroke = { id: sid, color: color.value, size: Number(size.value), erase: mode === "eraser", points: [[Math.round(p.x), Math.round(p.y)]], last: null };
+                flush();
+            });
+
+            board.addEventListener("pointermove", function(event) {
+                if (!stroke || event.pointerId !== pointer) return;
+                event.preventDefault();
+                if (stroke.points.length >= 16) return;
+                var p = point(event);
+                if (!stroke.points.length && stroke.last) stroke.points.push(stroke.last);
+                stroke.points.push([Math.round(p.x), Math.round(p.y)]);
+            });
+
+            ["pointerup", "pointercancel", "lostpointercapture"].forEach(function(name) {
+                board.addEventListener(name, function(event) {
+                    if (event.pointerId === pointer) finish();
+                });
+            });
+
+            undo.onclick = function() {
+                finish();
+                post({ type: "undo" });
+            };
+
+            wipe.onclick = function() {
+                finish();
+                post({ type: "wipe" });
+            };
+
+            function post(data) {
+                if (peer && !peer.closed) {
+                    peer.postMessage({
+                        channel: "ka-room-v1",
+                        key: key,
+                        data: data
+                    }, host);
+                }
+            }
+
+            function clear() {
+                keys = {};
+                post({
+                    type: "input",
+                    keys: {}
+                });
+            }
+
+            function line(data) {
+                var row = document.createElement("p"),
+                    name = document.createElement("strong");
+                name.textContent = data.name + ": ";
+                row.appendChild(name);
+                row.appendChild(document.createTextNode(data.text));
+                chat.appendChild(row);
+                while (chat.children.length > 80) {
+                    chat.removeChild(chat.firstChild);
+                }
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            document.getElementById("join").onsubmit = function(event) {
+                event.preventDefault();
+                var name = nick.value.replace(/[^a-zA-Z0-9 _-]/g, "").trim().slice(0, 16);
+                if (!name) {
+                    label.textContent = "Enter a name.";
+                    return;
+                }
+                post({
+                    type: "leave"
+                });
+                if (peer && !peer.closed) {
+                    peer.close();
+                }
+                nick.value = name;
+                var bytes = new Uint8Array(16);
+                crypto.getRandomValues(bytes);
+                key = "";
+                for (var i = 0; i < bytes.length; i++) {
+                    key += ("0" + bytes[i].toString(16)).slice(-2);
+                }
+                peer = window.open(host + "/connect#" + key, "ka-room-" + key);
+                live = false;
+                id = "";
+                dots = {};
+                send.disabled = true;
+                chat.textContent = "";
+                clear();
+                finish();
+                strokes = [];
+                redraw();
+                label.textContent = peer ? "Connecting... Keep the connection tab open >:D" : "Allow the connection tab, then press Connect again please";
+            };
+
+            window.addEventListener("message", function(event) {
+                var packet = event.data;
+                if (event.origin !== host || event.source !== peer || !packet || packet.channel !== "ka-room-v1" || packet.key !== key) {
+                    return;
+                }
+                var data = packet.data || {};
+                if (data.type === "ready") {
+                    post({
+                        type: "join",
+                        name: nick.value,
+                        room: "LOBBY"
+                    });
+                } else if (data.type === "status") {
+                    label.textContent = data.text;
+                } else if (data.type === "welcome") {
+                    id = data.id;
+                    live = true;
+                    send.disabled = false;
+                    strokes = data.drawing || [];
+                    redraw();
+                    label.textContent = "Connected to " + data.room + " / WASD or arrows to move";
+                    for (var h = 0; h < (data.chat || []).length; h++) {
+                        line(data.chat[h]);
                     }
-                    var data = packet.data || {};
-                    if (data.type === "ready") {
-                        post({ type: "join", name: nick.value, room: room.value });
-                    } else if (data.type === "status") {
-                        label.textContent = data.text;
-                    } else if (data.type === "welcome") {
-                        id = data.id;
-                        live = true;
-                        send.disabled = false;
-                        label.textContent =
-                            "Connected to " + data.room + " / WASD or arrows to move";
-                        for (var h = 0; h < (data.chat || []).length; h++) {
-                            line(data.chat[h]);
+                } else if (data.type === "snapshot") {
+                    var next = {};
+                    for (var i = 0; i < data.players.length; i++) {
+                        var p = data.players[i],
+                            old = dots[p.id];
+                        next[p.id] = {
+                            x: old ? old.x : p.x,
+                            y: old ? old.y : p.y,
+                            tx: p.x,
+                            ty: p.y,
+                            name: p.name,
+                            color: p.color
+                        };
+                    }
+                    dots = next;
+                } else if (data.type === "draw") {
+                    strokes.push(data);
+                    paintOp(data);
+                    controls();
+                } else if (data.type === "undo") {
+                    strokes = strokes.filter(function(s) { return s.id !== data.id; });
+                    redraw();
+                } else if (data.type === "wipe") {
+                    stroke = null;
+                    strokes = [];
+                    redraw();
+                } else if (data.type === "paint_error") {
+                    finish();
+                    label.textContent = data.message;
+                } else if (data.type === "chat") {
+                    line(data);
+                } else if (data.type === "disconnected" || data.type === "error") {
+                    live = false;
+                    send.disabled = true;
+                    keys = {};
+                    finish();
+                    label.textContent = data.message || "Awwww, disconnected... Reconnecting!";
+                }
+            });
+
+            document.getElementById("say").onsubmit = function(event) {
+                event.preventDefault();
+                if (!live || !msg.value.trim()) {
+                    return;
+                }
+                post({
+                    type: "chat",
+                    text: msg.value.trim().slice(0, 180)
+                });
+                msg.value = "";
+            };
+
+            window.addEventListener("keydown", function(event) {
+                if (["INPUT", "BUTTON", "TEXTAREA"].indexOf(event.target.tagName) >= 0) {
+                    return;
+                }
+                if ([37, 38, 39, 40, 32].indexOf(event.keyCode) >= 0) {
+                    event.preventDefault();
+                }
+                keys[event.keyCode] = true;
+            });
+
+            window.addEventListener("keyup", function(event) {
+                delete keys[event.keyCode];
+            });
+
+            window.addEventListener("blur", function() {
+                clear();
+                finish();
+            });
+
+            document.addEventListener("visibilitychange", function() {
+                if (document.hidden) {
+                    clear();
+                }
+            });
+
+            msg.addEventListener("focus", clear);
+            nick.addEventListener("focus", clear);
+
+            board.onclick = function() {
+                board.focus();
+            };
+
+            window.addEventListener("pagehide", function() {
+                post({
+                    type: "leave"
+                });
+            });
+
+            function frame(now) {
+                var dt = prev ? Math.min(100, now - prev) : 16;
+                prev = now;
+                ctx.clearRect(0, 0, 800, 600);
+                ctx.strokeStyle = "#e8edf2";
+                ctx.lineWidth = 1;
+                for (var x = 40; x < 800; x += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, 600);
+                    ctx.stroke();
+                }
+                for (var y = 40; y < 600; y += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(800, y);
+                    ctx.stroke();
+                }
+                ctx.drawImage(paint, 0, 0);
+                var blend = 1 - Math.exp(-dt / 45);
+                for (var who in dots) {
+                    if (!dots.hasOwnProperty(who)) {
+                        continue;
+                    }
+                    var p = dots[who];
+                    p.x += (p.tx - p.x) * blend;
+                    p.y += (p.ty - p.y) * blend;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                    if (who === id) {
+                        ctx.strokeStyle = "#263343";
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
+                    ctx.fillStyle = "#263343";
+                    ctx.font = "13px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(p.name, p.x, p.y - 21);
+                }
+                if (live && now - paintAt >= 60) {
+                    paintAt = now;
+                    flush();
+                }
+                if (live && now - inputAt >= 80) {
+                    inputAt = now;
+                    post({
+                        type: "input",
+                        keys: {
+                            up: !!(keys[87] || keys[38]),
+                            down: !!(keys[83] || keys[40]),
+                            left: !!(keys[65] || keys[37]),
+                            right: !!(keys[68] || keys[39])
                         }
-                    } else if (data.type === "snapshot") {
-                        var next = {};
-                        for (var i = 0; i < data.players.length; i++) {
-                            var p = data.players[i],
-                                old = dots[p.id];
-                            next[p.id] = {
-                                x: old ? old.x : p.x,
-                                y: old ? old.y : p.y,
-                                tx: p.x,
-                                ty: p.y,
-                                name: p.name,
-                                color: p.color
-                            };
-                        }
-                        dots = next;
-                    } else if (data.type === "chat") {
-                        line(data);
-                    } else if (data.type === "disconnected" || data.type === "error") {
+                    });
+                }
+                if (now - checkAt >= 1000) {
+                    checkAt = now;
+                    if (live && (!peer || peer.closed)) {
                         live = false;
                         send.disabled = true;
                         keys = {};
-                        label.textContent = data.message || "Disconnected. Reconnecting...";
+                        finish();
+                        label.textContent = "Connection tab closed >:( ...Press Connect to rejoin";
                     }
-                });
-                document.getElementById("say").onsubmit = function (event) {
-                    event.preventDefault();
-                    if (!live || !msg.value.trim()) {
-                        return;
-                    }
-                    post({ type: "chat", text: msg.value.trim().slice(0, 180) });
-                    msg.value = "";
-                };
-                window.addEventListener("keydown", function (event) {
-                    if (event.target.tagName === "INPUT") {
-                        return;
-                    }
-                    if ([37, 38, 39, 40, 32].indexOf(event.keyCode) >= 0) {
-                        event.preventDefault();
-                    }
-                    keys[event.keyCode] = true;
-                });
-                window.addEventListener("keyup", function (event) {
-                    delete keys[event.keyCode];
-                });
-                window.addEventListener("blur", clear);
-                document.addEventListener("visibilitychange", function () {
-                    if (document.hidden) {
-                        clear();
-                    }
-                });
-                msg.addEventListener("focus", clear);
-                nick.addEventListener("focus", clear);
-                room.addEventListener("focus", clear);
-                board.onclick = function () {
-                    board.focus();
-                };
-                window.addEventListener("pagehide", function () {
-                    post({ type: "leave" });
-                });
-                function frame(now) {
-                    var dt = prev ? Math.min(100, now - prev) : 16;
-                    prev = now;
-                    ctx.clearRect(0, 0, 800, 600);
-                    ctx.strokeStyle = "#e8edf2";
-                    ctx.lineWidth = 1;
-                    for (var x = 40; x < 800; x += 40) {
-                        ctx.beginPath();
-                        ctx.moveTo(x, 0);
-                        ctx.lineTo(x, 600);
-                        ctx.stroke();
-                    }
-                    for (var y = 40; y < 600; y += 40) {
-                        ctx.beginPath();
-                        ctx.moveTo(0, y);
-                        ctx.lineTo(800, y);
-                        ctx.stroke();
-                    }
-                    var blend = 1 - Math.exp(-dt / 45);
-                    for (var who in dots) {
-                        if (!dots.hasOwnProperty(who)) {
-                            continue;
-                        }
-                        var p = dots[who];
-                        p.x += (p.tx - p.x) * blend;
-                        p.y += (p.ty - p.y) * blend;
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
-                        ctx.fillStyle = p.color;
-                        ctx.fill();
-                        if (who === id) {
-                            ctx.strokeStyle = "#263343";
-                            ctx.lineWidth = 2;
-                            ctx.stroke();
-                        }
-                        ctx.fillStyle = "#263343";
-                        ctx.font = "13px Arial";
-                        ctx.textAlign = "center";
-                        ctx.fillText(p.name, p.x, p.y - 21);
-                    }
-                    if (live && now - inputAt >= 80) {
-                        inputAt = now;
-                        post({
-                            type: "input",
-                            keys: {
-                                up: !!(keys[87] || keys[38]),
-                                down: !!(keys[83] || keys[40]),
-                                left: !!(keys[65] || keys[37]),
-                                right: !!(keys[68] || keys[39])
-                            }
-                        });
-                    }
-                    if (now - checkAt >= 1000) {
-                        checkAt = now;
-                        if (live && (!peer || peer.closed)) {
-                            live = false;
-                            send.disabled = true;
-                            keys = {};
-                            label.textContent = "Connection tab closed. Press Connect to rejoin.";
-                        }
-                    }
-                    requestAnimationFrame(frame);
                 }
                 requestAnimationFrame(frame);
-            })();
-        </script>
-    </body>
+            }
+
+            requestAnimationFrame(frame);
+        })();
+    </script>
+</body>
+
 </html>

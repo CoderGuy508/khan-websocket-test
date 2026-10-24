@@ -80,7 +80,7 @@ function createTestServer(options = {}) {
         const room = rooms.get(client.room);
         if (room) {
             room.delete(client.id);
-            if (!room.size) {
+            if (!room.size && !room.ink.length) {
                 rooms.delete(client.room);
             }
         }
@@ -167,6 +167,8 @@ function createTestServer(options = {}) {
                 if (!room) {
                     room = new Map();
                     room.chat = [];
+                    room.ink = [];
+                    room.paintAt = 0;
                     rooms.set(roomName, room);
                 }
                 client.room = roomName;
@@ -182,7 +184,8 @@ function createTestServer(options = {}) {
                     room: roomName,
                     width: 800,
                     height: 600,
-                    chat: room.chat
+                    chat: room.chat,
+                    drawing: room.ink
                 });
             } else if (data.type === "input" && client.room) {
                 const input = data.keys;
@@ -210,6 +213,39 @@ function createTestServer(options = {}) {
                 room.chat.push(msg);
                 if (room.chat.length > 30) room.chat.shift();
                 for (const peer of room.values()) send(peer.ws, msg);
+            } else if (data.type === "draw" && client.room) {
+                const room = rooms.get(client.room);
+                if (!room || typeof data.id !== "string" || !/^[a-f0-9]{16}$/.test(data.id)) return;
+                if (!Array.isArray(data.points) || !data.points.length || data.points.length > 16) return;
+                if (!data.points.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))) return;
+                const old = room.ink.find(op => op.id === data.id);
+                if (old && old.owner !== client.id) return;
+                if (!old && (!/^#[a-f0-9]{6}$/i.test(data.color || "") || !Number.isFinite(data.size) || data.size < 1 || data.size > 32)) return;
+                const op = {
+                    type: "draw", id: data.id, owner: client.id,
+                    color: old ? old.color : data.color,
+                    size: old ? old.size : Math.round(data.size),
+                    erase: old ? old.erase : data.erase === true,
+                    points: data.points.map(p => [Math.round(Math.max(0, Math.min(800, p[0]))), Math.round(Math.max(0, Math.min(600, p[1])))])
+                };
+                if (JSON.stringify(room.ink).length + JSON.stringify(op).length + 1 > 40000) {
+                    send(ws, { type: "paint_error", message: "The board is full. Undo or clear some drawing." });
+                    return;
+                }
+                room.ink.push(op);
+                for (const peer of room.values()) send(peer.ws, op);
+            } else if (data.type === "undo" && client.room) {
+                const room = rooms.get(client.room);
+                const last = room && [...room.ink].reverse().find(op => op.owner === client.id);
+                if (!last) return;
+                room.ink = room.ink.filter(op => op.id !== last.id);
+                for (const peer of room.values()) send(peer.ws, { type: "undo", id: last.id });
+            } else if (data.type === "wipe" && client.room) {
+                const room = rooms.get(client.room);
+                if (!room || now - room.paintAt < 1000) return;
+                room.paintAt = now;
+                room.ink = [];
+                for (const peer of room.values()) send(peer.ws, { type: "wipe" });
             } else if (data.type === "ping") {
                 send(ws, { type: "pong", at: Number.isFinite(data.at) ? data.at : 0 });
             }
