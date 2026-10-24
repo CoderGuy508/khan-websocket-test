@@ -43,12 +43,12 @@
                 function allowed(value) {
                     return (
                         /^https:\/\/(www\.)?kasandbox\.org$/.test(value) ||
-                        value === location.origin
+                        value === location.origin || value === "null"
                     );
                 }
                 function send(data) {
                     if (peer && origin)
-                        peer.postMessage({ channel: "ka-room-v1", key: key, data: data }, origin);
+                        peer.postMessage({ channel: "ka-room-v1", key: key, data: data }, origin === "null" ? "*" : origin);
                 }
                 function state(text) {
                     label.textContent = text;
@@ -131,6 +131,7 @@
                         msg.key !== key
                     )
                         return;
+                    if (origin && event.origin !== origin) return;
                     origin = event.origin;
                     var data = msg.data || {};
                     if (data.type === "join") {
@@ -167,15 +168,7 @@
                     if (!room) {
                         peer.postMessage(
                             { channel: "ka-room-v1", key: key, data: { type: "ready" } },
-                            "https://www.kasandbox.org"
-                        );
-                        peer.postMessage(
-                            { channel: "ka-room-v1", key: key, data: { type: "ready" } },
-                            "https://kasandbox.org"
-                        );
-                        peer.postMessage(
-                            { channel: "ka-room-v1", key: key, data: { type: "ready" } },
-                            location.origin
+                            "*"
                         );
                     }
                 }, 300);

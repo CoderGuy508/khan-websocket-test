@@ -192,3 +192,14 @@ test("shared drawing relays, restores on join, isolates rooms and enforces strok
     await pause(60);
     assert.equal(app.rooms.get("PAINT").ink.length, 0);
 });
+
+
+test("a local file can use the companion with its own key and opener", async (t) => {
+    const { origin } = await setup(t);
+    const a = helper(origin, "Local", "LOCAL", false);
+    t.after(() => a.close());
+    a.send({ type: "join", name: "Local", room: "LOCAL" }, { origin: "null" });
+    await until(() => a.received.some(m => m.type === "welcome"));
+    a.send({ type: "draw", id: "c".repeat(16), color: "#112233", size: 6, points: [[30, 40]] }, { origin: "null" });
+    await until(() => a.received.some(m => m.type === "draw"));
+});
