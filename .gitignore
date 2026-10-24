@@ -1,2 +1,6 @@
 node_modules/
 .env
+
+admin-bans.json
+admin-bans.json.tmp
+.env.admin

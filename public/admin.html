@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Room admin</title>
+    <link rel="stylesheet" href="/admin.css">
+    <script src="/admin.js" defer></script>
+</head>
+<body>
+    <header>
+        <div><p class="eyebrow">MULTIPLAYER ROOM</p><h1>Admin</h1></div>
+        <button id="logout" hidden>Sign out</button>
+    </header>
+    <p id="status" role="status">Sign in to manage the room.</p>
+    <form id="login" class="card login">
+        <label for="key">Admin key</label>
+        <div class="line"><input id="key" type="password" autocomplete="current-password" required><button>Sign in</button></div>
+    </form>
+    <main id="dashboard" hidden>
+        <section class="card">
+            <div class="heading"><h2>Players</h2><span id="count" class="muted"></span></div>
+            <div id="players" class="list"></div>
+        </section>
+        <section class="card">
+            <div class="heading"><h2>Board</h2><select id="room" aria-label="Room"></select></div>
+            <canvas id="board" width="800" height="600" aria-label="Room drawing preview"></canvas>
+            <div class="heading"><span class="muted">Live drawing preview</span><button id="clearBoard" class="danger">Clear whole board</button></div>
+        </section>
+        <section class="card wide">
+            <div class="heading"><h2>Drawings</h2><span id="drawCount" class="muted"></span></div>
+            <div id="drawings" class="gallery"></div>
+            <button id="more" hidden>Show more</button>
+        </section>
+        <section class="card">
+            <div class="heading"><h2>Chat</h2><button id="clearChat" class="danger">Clear chat</button></div>
+            <div id="comments" class="list"></div>
+        </section>
+        <section class="card">
+            <h2>IP bans</h2>
+            <form id="banForm" class="line"><input id="ip" placeholder="IP address" aria-label="IP address" required><button class="danger">Ban IP</button></form>
+            <div id="bans" class="list"></div>
+            <p class="muted small">An IP ban affects everyone using that address. Free hosting may lose bans when the server restarts.</p>
+        </section>
+        <section class="card wide"><h2>Recently deleted</h2><div id="trash" class="list"></div></section>
+    </main>
+</body>
+</html>

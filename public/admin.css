@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+body { margin: 0 auto; padding: 28px 22px 60px; max-width: 1200px; background: #f4f6f9; color: #243145; font: 14px/1.5 Arial, sans-serif; }
+[hidden] { display: none !important; }
+header, .heading, .line, .row { display: flex; align-items: center; gap: 10px; }
+header, .heading, .row { justify-content: space-between; }
+header { margin-bottom: 16px; }
+h1 { font-size: 30px; margin: 0; letter-spacing: -1px; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+.heading h2 { margin: 0; }
+.heading { margin: 0 0 12px; flex-wrap: wrap; }
+.eyebrow { margin: 0; color: #627189; font-size: 10px; letter-spacing: 2px; }
+#status { color: #53657d; min-height: 22px; }
+#status.error { color: #ad3039; }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { min-width: 0; padding: 20px; background: white; border: 1px solid #dce2eb; border-radius: 10px; }
+.wide { grid-column: 1 / -1; }
+.login { max-width: 440px; }
+label { display: block; margin-bottom: 8px; }
+button, input, select { font: inherit; border: 1px solid #cbd5e3; border-radius: 5px; padding: 8px 10px; }
+button { background: #eef3fa; color: #244c87; cursor: pointer; white-space: nowrap; }
+button:hover { background: #e1eaf8; }
+button:disabled { opacity: .5; cursor: default; }
+button.danger { background: #fff0f0; color: #a42e3b; border-color: #f0cdd1; }
+input { min-width: 0; flex: 1; background: #fff; width: 100%; }
+.line { margin-bottom: 12px; }
+.list .row { padding: 10px 0; border-bottom: 1px solid #edf0f5; align-items: flex-start; }
+.row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.muted { color: #748197; }
+.small { font-size: 12px; }
+code { font-size: 12px; overflow-wrap: anywhere; }
+canvas { display: block; width: 100%; height: auto; background: #f5f7fa; border: 1px solid #e1e7f0; border-radius: 5px; margin-bottom: 12px; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.drawing { padding: 10px; border: 1px solid #e1e7f0; border-radius: 7px; }
+.drawing p { margin: 4px 0; overflow-wrap: anywhere; }
+.drawing button { margin-top: 8px; }
+#more { margin-top: 16px; }
+@media (max-width: 720px) { main { grid-template-columns: 1fr; } body { padding: 20px 12px; } .card { padding: 15px; } .row { flex-wrap: wrap; } }

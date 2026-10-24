@@ -179,13 +179,14 @@ test("shared drawing relays, restores on join, isolates rooms and enforces strok
     const d = helper(origin, "Late", "PAINT");
     peers.push(d);
     await until(() => d.received.some(m => m.type === "welcome"));
-    assert.equal(d.received.find(m => m.type === "welcome").drawing.length, 2);
+    await until(() => d.received.some(m => m.type === "drawing_end"));
+    assert.equal(d.received.filter(m => m.type === "drawing_chunk").flatMap(m => m.drawing).length, 2);
     a.send({ type: "undo" });
     await until(() => b.received.some(m => m.type === "undo"));
     assert.equal(app.rooms.get("PAINT").ink.length, 1);
     assert.equal(app.rooms.get("PAINT").ink[0].id, "b".repeat(16));
     b.send({ type: "wipe" });
-    await until(() => d.received.some(m => m.type === "wipe"));
+    await until(() => d.received.some(m => m.type === "undo" && m.id === "b".repeat(16)));
     assert.equal(app.rooms.get("PAINT").ink.length, 0);
     a.send({ ...first, size: 100 });
     a.send({ ...first, points: [[null, 10]] });

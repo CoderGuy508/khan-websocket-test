@@ -137,7 +137,7 @@
             <input id="size" type="range" min="1" max="32" value="8" aria-label="Brush size" title="Brush size" />
             <output id="width" for="size">8</output>
             <button id="undo" type="button" disabled>Undo</button>
-            <button id="wipe" type="button" disabled>Clear</button>
+            <button id="wipe" type="button" title="Clear your drawing" disabled>Clear</button>
         </div>
         <canvas id="game" width="800" height="600" tabindex="0" aria-label="Multiplayer play area"></canvas>
         <div id="chat" role="log" aria-live="polite"></div>
@@ -176,6 +176,7 @@
                 ink = paint.getContext("2d"),
                 mode = "move",
                 strokes = [],
+                cursors = {},
                 stroke = null,
                 pointer = null,
                 paintAt = 0;
@@ -235,7 +236,7 @@
 
             function controls() {
                 undo.disabled = !live || !strokes.some(function(s) { return s.owner === id; });
-                wipe.disabled = !live || strokes.length === 0;
+                wipe.disabled = undo.disabled;
             }
 
             function paintOp(s) {
@@ -259,7 +260,9 @@
             }
 
             function finish() {
+                var drawing = !!stroke;
                 flush();
+                if (drawing && live) post({ type: "cursor", active: false });
                 stroke = null;
                 var old = pointer;
                 pointer = null;
@@ -329,6 +332,7 @@
             function line(data) {
                 var row = document.createElement("p"),
                     name = document.createElement("strong");
+                row.dataset.mid = data.mid || "";
                 name.textContent = data.name + ": ";
                 row.appendChild(name);
                 row.appendChild(document.createTextNode(data.text));
@@ -411,10 +415,26 @@
                         };
                     }
                     dots = next;
+                } else if (data.type === "drawing_start") {
+                    strokes = [];
+                    cursors = {};
+                    redraw();
+                } else if (data.type === "drawing_chunk") {
+                    (data.drawing || []).forEach(function(op) {
+                        strokes.push(op);
+                        paintOp(op);
+                    });
+                    controls();
+                } else if (data.type === "drawing_end") {
+                    controls();
                 } else if (data.type === "draw") {
                     strokes.push(data);
+                    var last = data.points[data.points.length - 1];
+                    cursors[data.owner] = { x: last[0], y: last[1], name: data.name || "Player", color: data.color, size: data.size, at: performance.now() };
                     paintOp(data);
                     controls();
+                } else if (data.type === "cursor") {
+                    delete cursors[data.id];
                 } else if (data.type === "undo") {
                     strokes = strokes.filter(function(s) { return s.id !== data.id; });
                     redraw();
@@ -425,6 +445,13 @@
                 } else if (data.type === "paint_error") {
                     finish();
                     label.textContent = data.message;
+                } else if (data.type === "chat_delete") {
+                    Array.prototype.slice.call(chat.children).forEach(function(row) {
+                        if (row.dataset.mid === data.mid) row.remove();
+                    });
+                } else if (data.type === "chat_reset") {
+                    chat.textContent = "";
+                    (data.chat || []).forEach(line);
                 } else if (data.type === "chat") {
                     line(data);
                 } else if (data.type === "disconnected" || data.type === "error") {
@@ -526,6 +553,30 @@
                     ctx.font = "13px Arial";
                     ctx.textAlign = "center";
                     ctx.fillText(p.name, p.x, p.y - 21);
+                }
+                for (var owner in cursors) {
+                    if (!cursors.hasOwnProperty(owner)) continue;
+                    var cursor = cursors[owner];
+                    if (now - cursor.at > 1500) {
+                        delete cursors[owner];
+                        continue;
+                    }
+                    ctx.strokeStyle = cursor.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.arc(cursor.x, cursor.y, Math.max(3, cursor.size / 2), 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.font = "12px Arial";
+                    ctx.textAlign = "left";
+                    var width = ctx.measureText(cursor.name).width + 12,
+                        tx = Math.max(0, Math.min(800 - width, cursor.x + 12)),
+                        ty = Math.max(2, cursor.y - 25);
+                    ctx.fillStyle = "rgba(38, 51, 67, 0.88)";
+                    ctx.fillRect(tx, ty, width, 20);
+                    ctx.fillStyle = cursor.color;
+                    ctx.fillRect(tx, ty, 3, 20);
+                    ctx.fillStyle = "#fff";
+                    ctx.fillText(cursor.name, tx + 7, ty + 14);
                 }
                 if (live && now - paintAt >= 60) {
                     paintAt = now;
