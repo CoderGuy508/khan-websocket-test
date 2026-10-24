@@ -138,6 +138,7 @@
             <output id="width" for="size">8</output>
             <button id="undo" type="button" disabled>Undo</button>
             <button id="wipe" type="button" title="Clear your drawing" disabled>Clear</button>
+            <button id="full" type="button" disabled>Full screen</button>
         </div>
         <canvas id="game" width="800" height="600" tabindex="0" aria-label="Multiplayer play area"></canvas>
         <div id="chat" role="log" aria-live="polite"></div>
@@ -158,6 +159,14 @@
                 msg = document.getElementById("msg");
             var button = document.getElementById("connect"),
                 send = document.getElementById("send");
+            var full = document.getElementById("full"),
+                popup = /[?&]fullscreen=1(?:&|$)/.test(location.search),
+                fullKey = popup ? location.hash.slice(1) : "",
+                bridge = popup && window.opener && /^[a-f0-9]{32}$/.test(fullKey),
+                fullWin = null,
+                fullOrigin = null,
+                remote = false,
+                readyTimer;
             var peer,
                 key = "",
                 id = "",
@@ -182,6 +191,58 @@
                 paintAt = 0;
             paint.width = board.width;
             paint.height = board.height;
+
+            function sendFull(data) {
+                if (fullWin && !fullWin.closed) fullWin.postMessage({ channel: "ka-full-v1", key: fullKey, data: data }, host);
+            }
+
+            function nativeFull() {
+                var exit = document.exitFullscreen || document.webkitExitFullscreen,
+                    enter = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen,
+                    result;
+                try {
+                    if (document.fullscreenElement || document.webkitFullscreenElement) result = exit && exit.call(document);
+                    else result = enter && enter.call(document.documentElement);
+                    if (result && result.catch) result.catch(function() {});
+                } catch (error) {}
+            }
+
+            full.onclick = function() {
+                if (popup) {
+                    nativeFull();
+                    return;
+                }
+                if (!live) return;
+                if (fullWin && !fullWin.closed) {
+                    if (remote) {
+                        fullWin.close();
+                        fullWin = null;
+                        remote = false;
+                        clear();
+                        controls();
+                        label.textContent = "Connected to LOBBY / WASD or arrows to move";
+                        controls();
+                    } else fullWin.focus();
+                    return;
+                }
+                var bytes = crypto.getRandomValues(new Uint8Array(16));
+                fullKey = "";
+                for (var i = 0; i < bytes.length; i++) {
+                    fullKey += ("0" + bytes[i].toString(16)).slice(-2);
+                }
+                fullWin = window.open(host + "/game.html?fullscreen=1#" + fullKey, "ka-full-" + fullKey,
+                    "popup=yes,left=0,top=0,width=" + screen.availWidth + ",height=" + screen.availHeight);
+                if (!fullWin) label.textContent = "Allow the game window, then try Full screen again.";
+                else setTimeout(function() {
+                    if (!remote && fullWin && !fullWin.closed) {
+                        fullWin = window.open(host + "/game.html?fullscreen=1#" + fullKey, "ka-full-" + fullKey);
+                    }
+                }, 2000);
+            };
+
+            document.addEventListener("fullscreenchange", function() {
+                if (popup) full.textContent = document.fullscreenElement ? "Exit full screen" : "Full screen";
+            });
 
             function tool(name) {
                 finish();
@@ -237,6 +298,8 @@
             function controls() {
                 undo.disabled = !live || !strokes.some(function(s) { return s.owner === id; });
                 wipe.disabled = undo.disabled;
+                full.disabled = !popup && !live;
+                if (!popup) full.textContent = remote ? "Return here" : "Full screen";
             }
 
             function paintOp(s) {
@@ -271,7 +334,7 @@
             }
 
             board.addEventListener("pointerdown", function(event) {
-                if (!live || mode === "move" || event.button !== 0 || pointer !== null) return;
+                if (!live || remote || mode === "move" || event.button !== 0 || pointer !== null) return;
                 event.preventDefault();
                 board.focus();
                 pointer = event.pointerId;
@@ -312,6 +375,10 @@
             };
 
             function post(data) {
+                if (bridge) {
+                    if (fullOrigin && !window.opener.closed) window.opener.postMessage({ channel: "ka-full-v1", key: fullKey, type: "send", data: data }, fullOrigin === "null" ? "*" : fullOrigin);
+                    return;
+                }
                 if (peer && !peer.closed) {
                     peer.postMessage({
                         channel: "ka-room-v1",
@@ -378,10 +445,43 @@
 
             window.addEventListener("message", function(event) {
                 var packet = event.data;
-                if (event.origin !== host || event.source !== peer || !packet || packet.channel !== "ka-room-v1" || packet.key !== key) {
+                if (!popup && event.source === fullWin && event.origin === host && packet && packet.channel === "ka-full-v1" && packet.key === fullKey) {
+                    if (packet.type === "ready" && live) {
+                        remote = true;
+                        clear();
+                        label.textContent = "Game running in the new window.";
+                        controls();
+                        var history = [];
+                        Array.prototype.forEach.call(chat.children, function(row) {
+                            var name = row.querySelector("strong");
+                            if (name) history.push({ name: name.textContent.slice(0, -2), text: row.lastChild.textContent, mid: row.dataset.mid });
+                        });
+                        sendFull({ type: "welcome", id: id, room: "LOBBY", chat: history, drawing: [] });
+                        sendFull({ type: "drawing_start" });
+                        for (var at = 0; at < strokes.length; at += 8) {
+                            sendFull({ type: "drawing_chunk", drawing: strokes.slice(at, at + 8) });
+                        }
+                        sendFull({ type: "drawing_end" });
+                    } else if (packet.type === "send" && remote && packet.data && ["input", "chat", "draw", "cursor", "undo", "wipe"].indexOf(packet.data.type) >= 0) {
+                        post(packet.data);
+                    } else if (packet.type === "close") {
+                        remote = false;
+                        fullWin = null;
+                        clear();
+                        label.textContent = "Connected to LOBBY / WASD or arrows to move";
+                        controls();
+                    }
+                    return;
+                }
+                var fromFull = bridge && event.source === window.opener && packet && packet.channel === "ka-full-v1" && packet.key === fullKey && (!fullOrigin || event.origin === fullOrigin);
+                if (fromFull) {
+                    fullOrigin = event.origin;
+                    packet = { data: packet.data };
+                } else if (event.origin !== host || event.source !== peer || !packet || packet.channel !== "ka-room-v1" || packet.key !== key) {
                     return;
                 }
                 var data = packet.data || {};
+                if (!popup && remote) sendFull(data);
                 if (data.type === "ready") {
                     post({
                         type: "join",
@@ -392,6 +492,7 @@
                     label.textContent = data.text;
                 } else if (data.type === "welcome") {
                     id = data.id;
+                    if (bridge) clearInterval(readyTimer);
                     live = true;
                     send.disabled = false;
                     strokes = data.drawing || [];
@@ -508,6 +609,11 @@
             };
 
             window.addEventListener("pagehide", function() {
+                if (bridge) {
+                    window.opener.postMessage({ channel: "ka-full-v1", key: fullKey, type: "close" }, fullOrigin === "null" || !fullOrigin ? "*" : fullOrigin);
+                    return;
+                }
+                if (fullWin && !fullWin.closed) fullWin.close();
                 post({
                     type: "leave"
                 });
@@ -578,11 +684,11 @@
                     ctx.fillStyle = "#fff";
                     ctx.fillText(cursor.name, tx + 7, ty + 14);
                 }
-                if (live && now - paintAt >= 60) {
+                if (live && !remote && now - paintAt >= 60) {
                     paintAt = now;
                     flush();
                 }
-                if (live && now - inputAt >= 80) {
+                if (live && !remote && now - inputAt >= 80) {
                     inputAt = now;
                     post({
                         type: "input",
@@ -596,7 +702,14 @@
                 }
                 if (now - checkAt >= 1000) {
                     checkAt = now;
-                    if (live && (!peer || peer.closed)) {
+                    if (remote && (!fullWin || fullWin.closed)) {
+                        remote = false;
+                        fullWin = null;
+                        clear();
+                        label.textContent = "Connected to LOBBY / WASD or arrows to move";
+                        controls();
+                    }
+                    if (bridge ? live && window.opener.closed : live && (!peer || peer.closed)) {
                         live = false;
                         send.disabled = true;
                         keys = {};
@@ -607,6 +720,17 @@
                 requestAnimationFrame(frame);
             }
 
+            if (popup) full.disabled = false;
+            if (bridge) {
+                document.getElementById("join").hidden = true;
+                label.textContent = "Opening the game window...";
+                var ready = function() {
+                    if (!window.opener.closed) window.opener.postMessage({ channel: "ka-full-v1", key: fullKey, type: "ready" }, "*");
+                };
+                readyTimer = setInterval(ready, 300);
+                ready();
+                setTimeout(nativeFull, 0);
+            }
             requestAnimationFrame(frame);
         })();
     </script>
