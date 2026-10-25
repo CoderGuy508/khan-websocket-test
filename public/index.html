@@ -175,7 +175,9 @@
                 dots = {},
                 prev = 0,
                 inputAt = 0,
-                checkAt = 0;
+                checkAt = 0,
+                typingAt = 0,
+                typingTimer;
 
             var color = document.getElementById("color"),
                 size = document.getElementById("size"),
@@ -473,7 +475,7 @@
                             sendFull({ type: "drawing_chunk", drawing: strokes.slice(at, at + 8) });
                         }
                         sendFull({ type: "drawing_end" });
-                    } else if (packet.type === "send" && remote && packet.data && ["input", "chat", "draw", "cursor", "undo", "wipe"].indexOf(packet.data.type) >= 0) {
+                    } else if (packet.type === "send" && remote && packet.data && ["input", "chat", "draw", "cursor", "undo", "wipe", "typing"].indexOf(packet.data.type) >= 0) {
                         post(packet.data);
                     } else if (packet.type === "close") {
                         remote = false;
@@ -523,6 +525,7 @@
                             tx: p.x,
                             ty: p.y,
                             name: p.name,
+                            typing: p.typing === true,
                             color: p.color
                         };
                     }
@@ -575,6 +578,27 @@
                 }
             });
 
+            function stopTyping() {
+                clearTimeout(typingTimer);
+                typingAt = 0;
+                if (live && !remote) post({ type: "typing", active: false });
+            }
+
+            msg.addEventListener("input", function() {
+                if (!live || remote) return;
+                if (!msg.value.trim()) { stopTyping(); return; }
+                var now = Date.now();
+                if (now - typingAt >= 500) {
+                    typingAt = now;
+                    post({ type: "typing", active: true });
+                }
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(stopTyping, 1800);
+            });
+            msg.addEventListener("blur", stopTyping);
+            window.addEventListener("blur", stopTyping);
+            document.addEventListener("visibilitychange", function() { if (document.hidden) stopTyping(); });
+
             document.getElementById("say").onsubmit = function(event) {
                 event.preventDefault();
                 if (!live || !msg.value.trim()) {
@@ -585,6 +609,7 @@
                     text: msg.value.trim().slice(0, 180)
                 });
                 msg.value = "";
+                stopTyping();
             };
 
             window.addEventListener("keydown", function(event) {
@@ -670,6 +695,23 @@
                     ctx.font = "13px Arial";
                     ctx.textAlign = "center";
                     ctx.fillText(p.name, p.x, p.y - 21);
+                    if (p.typing) {
+                        var bx = Math.max(20, Math.min(780, p.x)),
+                            by = Math.max(17, p.y - 47);
+                        ctx.fillStyle = "rgba(38, 51, 67, 0.88)";
+                        ctx.beginPath();
+                        ctx.moveTo(bx - 9, by + 7);
+                        ctx.lineTo(bx - 3, by + 13);
+                        ctx.lineTo(bx + 3, by + 7);
+                        ctx.fill();
+                        ctx.fillRect(bx - 18, by - 10, 36, 20);
+                        ctx.fillStyle = "#fff";
+                        for (var dot = 0; dot < 3; dot++) {
+                            ctx.beginPath();
+                            ctx.arc(bx - 8 + dot * 8, by, 2, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
                 }
                 for (var owner in cursors) {
                     if (!cursors.hasOwnProperty(owner)) continue;

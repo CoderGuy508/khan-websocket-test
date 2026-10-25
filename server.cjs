@@ -270,7 +270,10 @@ function createTestServer(options = {}) {
                     right: input.right === true
                 };
                 client.lastInput = now;
+            } else if (data.type === "typing" && client.room) {
+                client.typingUntil = data.active === true && !client.muted ? now + 3000 : 0;
             } else if (data.type === "chat" && client.room) {
+                client.typingUntil = 0;
                 if (now - client.chatAt < 500 || typeof data.text !== "string") return;
                 if (client.muted) {
                     send(client.ws, { type: "notice", name: "Server", time: Date.now(), text: "You are muted by admin.", kind: "moderation" });
@@ -349,6 +352,7 @@ function createTestServer(options = {}) {
                 id: p.id,
                 name: p.name,
                 color: p.color,
+                typing: !p.muted && p.typingUntil > now,
                 x: Math.round(p.x * 100) / 100,
                 y: Math.round(p.y * 100) / 100
             }));

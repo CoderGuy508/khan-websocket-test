@@ -157,3 +157,19 @@ test("admin history groups aliases by IP and records disconnect times privately"
     assert.equal(entry.sessions[1].online, true);
     assert.ok(b.messages.filter(m => m.type === "snapshot").every(m => !JSON.stringify(m).includes("127.0.0.1")));
 });
+
+test("typing appears in room snapshots, clears on send and is blocked while muted", async t => {
+    const { key, api, player } = await setup(t);
+    const a = await player("Writer");
+    a.send({ type: "typing", active: true });
+    await until(() => a.messages.some(m => m.type === "snapshot" && m.players.some(p => p.id === a.id && p.typing)));
+    a.messages.length = 0;
+    a.send({ type: "chat", text: "done" });
+    await until(() => a.messages.some(m => m.type === "snapshot" && m.players.some(p => p.id === a.id && !p.typing)));
+    await api("login", { key });
+    await api("action", { action: "mute", id: a.id, muted: true });
+    a.messages.length = 0;
+    a.send({ type: "typing", active: true });
+    await until(() => a.messages.some(m => m.type === "snapshot"));
+    assert.ok(a.messages.filter(m => m.type === "snapshot").every(m => m.players.every(p => !p.typing)));
+});
