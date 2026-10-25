@@ -71,6 +71,11 @@ test("two companion tabs relay movement and chat, isolate rooms, and clean up wh
             (p) => p.type === "snapshot" && p.players.some((row) => row.id === id && row.x > x)
         )
     );
+    a.send({ type: "typing", active: true });
+    await until(() => b.received.some(p => p.type === "snapshot" && p.players.some(row => row.id === id && row.typing)));
+    a.send({ type: "typing", active: false });
+    b.received.length = 0;
+    await until(() => b.received.some(p => p.type === "snapshot" && p.players.some(row => row.id === id && !row.typing)));
     a.send({ type: "chat", text: "hello <b>world</b>" });
     await until(() => b.received.some((p) => p.type === "chat"));
     assert.equal(b.received.find((p) => p.type === "chat").text, "hello <b>world</b>");

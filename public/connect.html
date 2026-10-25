@@ -152,7 +152,7 @@
                             if (ws && ws.readyState === 1)
                                 ws.send(JSON.stringify({ type: "ping", at: Date.now() }));
                         }, 10000);
-                    } else if (["input", "chat", "draw", "undo", "wipe", "cursor"].indexOf(data.type) >= 0) {
+                    } else if (["input", "chat", "draw", "undo", "wipe", "cursor", "typing"].indexOf(data.type) >= 0) {
                         if (ws && ws.readyState === 1) ws.send(JSON.stringify(data));
                     } else if (data.type === "leave") {
                         stop();
