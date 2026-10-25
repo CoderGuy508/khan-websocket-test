@@ -116,6 +116,8 @@
         $("players").replaceChildren();
         for (const player of state.players) row($("players"), player.name, player.ip + " · " + player.room, [
             button("Kick", () => act("kick", { id: player.id })),
+            button(player.muted ? "Unmute" : "Mute", () => act("mute", { id: player.id, muted: !player.muted })),
+            button("Delete drawings", () => act("author", { id: player.id, room: player.room }), true),
             button("Ban IP", () => ban(player.ip), true)
         ]);
         empty($("players"), "No players online.");
@@ -145,7 +147,7 @@
         empty($("drawings"), "No drawings in this room.");
         $("more").hidden = groups.size <= limit;
         $("comments").replaceChildren();
-        for (const comment of room ? room.chat : []) row($("comments"), comment.name, comment.text, [button("Delete", () => act("comment", { id: comment.mid }), true)]);
+        for (const comment of room ? room.chat : []) row($("comments"), comment.name + " · " + new Date(comment.time).toLocaleTimeString(), comment.text, [button("Delete", () => act("comment", { id: comment.mid }), true)]);
         empty($("comments"), "No chat messages.");
         $("bans").replaceChildren();
         for (const entry of state.bans) row($("bans"), entry.ip, new Date(entry.time).toLocaleString(), [button("Unban", () => act("unban", { ip: entry.ip }))]);
@@ -181,6 +183,7 @@
     $("more").onclick = () => { limit += 24; render(); };
     $("clearBoard").onclick = () => act("board");
     $("clearChat").onclick = () => act("chat");
+    $("announce").onsubmit = event => { event.preventDefault(); act("announce", { text: $("announcement").value }); };
     $("banForm").onsubmit = event => { event.preventDefault(); ban($("ip").value.trim()); };
     setInterval(() => {
         if (signed && !busy && !document.hidden) refresh().catch(error => message(error.message, true));

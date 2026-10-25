@@ -270,6 +270,10 @@ function createTestServer(options = {}) {
                 client.lastInput = now;
             } else if (data.type === "chat" && client.room) {
                 if (now - client.chatAt < 500 || typeof data.text !== "string") return;
+                if (client.muted) {
+                    send(client.ws, { type: "notice", name: "Server", time: Date.now(), text: "You are muted by admin.", kind: "moderation" });
+                    return;
+                }
                 const text = filter(data.text)
                     .replace(/[\u0000-\u001f\u007f]/g, " ")
                     .trim()

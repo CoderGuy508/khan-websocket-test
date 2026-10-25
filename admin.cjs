@@ -127,7 +127,7 @@ function createAdmin({ rooms, clients, send, options, notice })
             const room = rooms.get(selected);
             return json(res, 200, {
                 rooms: [...rooms].map(([name, r]) => ({ name, players: r.size, drawings: new Set(r.ink.map(op => op.id)).size })),
-                players: [...clients].filter(c => c.room).map(c => ({ id: c.id, name: c.name, ip: c.ip, room: c.room })),
+                players: [...clients].filter(c => c.room).map(c => ({ id: c.id, name: c.name, ip: c.ip, room: c.room, muted: !!c.muted })),
                 room: room ? { name: selected, drawing: room.ink, chat: room.chat } : null,
                 authors: Object.fromEntries(authors), bans,
                 trash: trash.map(item => ({ id: item.id, room: item.room, kind: item.kind }))
@@ -164,8 +164,25 @@ function createAdmin({ rooms, clients, send, options, notice })
             }
             notice(target, "Admin restored " + (item.kind === "drawing" ? "a drawing." : "chat messages."), "info");
             trash.splice(trash.indexOf(item), 1);
+        } else if (data.action === "mute") {
+            const client = [...clients].find(c => c.id === data.id && c.room);
+            if (!client) return json(res, 404, { error: "Player left" });
+            client.muted = data.muted === true;
+            notice(rooms.get(client.room), client.name + (client.muted ? " was muted." : " was unmuted."), "moderation");
         } else if (!room) {
             return json(res, 404, { error: "Room is no longer available" });
+        } else if (data.action === "announce") {
+            const text = typeof data.text === "string" ? data.text.trim().slice(0, 180) : "";
+            if (!text) return json(res, 400, { error: "Enter an announcement" });
+            notice(room, text, "info");
+        } else if (data.action === "author") {
+            const ops = room.ink.filter(op => op.owner === data.id);
+            if (!ops.length) return json(res, 404, { error: "No drawings from this player" });
+            removed(data.room, "drawing", ops);
+            const ids = new Set(ops.map(op => op.id));
+            room.ink = room.ink.filter(op => op.owner !== data.id);
+            for (const id of ids) { room.hidden.add(id); broadcast(room, { type: "undo", id }); }
+            notice(room, "Admin removed a player's drawings.", "moderation");
         } else if (data.action === "drawing") {
             const ops = room.ink.filter(op => op.id === data.id);
             if (!ops.length) return json(res, 404, { error: "Drawing not found" });

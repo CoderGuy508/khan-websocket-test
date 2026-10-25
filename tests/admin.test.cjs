@@ -117,3 +117,25 @@ test("chat and names are filtered even through direct WebSocket messages", async
     await until(() => a.messages.some(m => m.type === "snapshot"));
     assert.equal(a.messages.find(m => m.type === "snapshot").players[0].name, "****");
 });
+
+test("admin can mute, announce, unmute and remove an author's drawings", async t => {
+    const { app, key, api, player } = await setup(t);
+    await api("login", { key });
+    const a = await player("Painter");
+    await api("action", { action: "mute", id: a.id, muted: true });
+    assert.equal((await api("state")).data.players[0].muted, true);
+    a.send({ type: "chat", text: "blocked" });
+    await until(() => a.messages.some(m => m.text === "You are muted by admin."));
+    assert.equal(app.rooms.get("ADMINTEST").chat.length, 0);
+    await api("action", { action: "announce", room: "ADMINTEST", text: "Hello everyone" });
+    await until(() => a.messages.some(m => m.type === "notice" && m.text === "Hello everyone"));
+    await api("action", { action: "mute", id: a.id, muted: false });
+    a.send({ type: "chat", text: "allowed" });
+    a.send({ type: "draw", id: "b".repeat(16), color: "#336699", size: 8, points: [[20, 30]] });
+    await until(() => app.rooms.get("ADMINTEST").chat.length === 1 && app.rooms.get("ADMINTEST").ink.length === 1);
+    await api("action", { action: "author", room: "ADMINTEST", id: a.id });
+    assert.equal(app.rooms.get("ADMINTEST").ink.length, 0);
+    const trash = (await api("state")).data.trash;
+    await api("action", { action: "restore", id: trash[0].id });
+    assert.equal(app.rooms.get("ADMINTEST").ink.length, 1);
+});

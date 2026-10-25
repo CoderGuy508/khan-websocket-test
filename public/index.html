@@ -404,6 +404,14 @@
                 var colors = { join: "#22834b", leave: "#69768a", moderation: "#bf4933", info: "#356bc4" };
                 if (colors[data.kind]) row.style.color = colors[data.kind];
                 name.textContent = data.name + ": ";
+                var stamp = document.createElement("time"),
+                    time = Number(data.time) || Date.now();
+                row.dataset.time = String(time);
+                stamp.dateTime = new Date(time).toISOString();
+                stamp.textContent = new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+                stamp.style.cssText = "font-size:10px;opacity:0.65;margin-right:4px";
+                stamp.title = new Date(time).toLocaleString();
+                row.appendChild(stamp);
                 row.appendChild(name);
                 row.appendChild(document.createTextNode(data.text));
                 chat.appendChild(row);
@@ -457,7 +465,7 @@
                         var history = [];
                         Array.prototype.forEach.call(chat.children, function(row) {
                             var name = row.querySelector("strong");
-                            if (name) history.push({ name: name.textContent.slice(0, -2), text: row.lastChild.textContent, mid: row.dataset.mid, kind: row.dataset.kind });
+                            if (name) history.push({ name: name.textContent.slice(0, -2), text: row.lastChild.textContent, mid: row.dataset.mid, kind: row.dataset.kind, time: Number(row.dataset.time) });
                         });
                         sendFull({ type: "welcome", id: id, room: "LOBBY", chat: history, drawing: [] });
                         sendFull({ type: "drawing_start" });
