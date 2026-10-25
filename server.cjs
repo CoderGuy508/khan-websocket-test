@@ -152,6 +152,7 @@ function createTestServer(options = {}) {
             ws,
             id: crypto.randomUUID(),
             ip,
+            agent: String(req.headers["user-agent"] || "Unknown").slice(0, 300),
             room: "",
             input: {},
             lastInput: 0,
@@ -178,6 +179,7 @@ function createTestServer(options = {}) {
         });
         ws.on("close", () => {
             clearTimeout(joinTimer);
+            admin.forget(client);
             leave(client);
             clients.delete(client);
         });

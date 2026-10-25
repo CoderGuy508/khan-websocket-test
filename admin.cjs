@@ -7,6 +7,10 @@ function createAdmin({ rooms, clients, send, options, notice })
     const key = options.adminKey ?? process.env.ADMIN_KEY ?? "";
     const file = options.banFile ?? process.env.BAN_FILE ?? "admin-bans.json";
     const secure = options.secure ?? process.env.RENDER === "true";
+    const historyFile = options.historyFile ?? file + ".history.json";
+    let history = [];
+    try { history = JSON.parse(fs.readFileSync(historyFile, "utf8")); } catch {}
+    if (!Array.isArray(history)) history = [];
     const sessions = new Map();
     const attempts = new Map();
     const authors = new Map();
@@ -28,10 +32,47 @@ function createAdmin({ rooms, clients, send, options, notice })
         return normalize(process.env.RENDER === "true" && isIP(ip) ? ip : req.socket.remoteAddress || "");
     }
 
+    function saveHistory()
+    {
+        if (key.length < 20) return;
+        try {
+            fs.writeFileSync(historyFile + ".tmp", JSON.stringify(history), { mode: 0o600 });
+            fs.renameSync(historyFile + ".tmp", historyFile);
+        } catch (error) { console.error("Could not save player history:", error.message); }
+    }
+
     function remember(client)
     {
+        const now = Date.now();
+        client.joined = now;
         authors.set(client.id, { name: client.name, ip: client.ip });
         if (authors.size > 2048) authors.delete(authors.keys().next().value);
+        let entry = history.find(h => h.ip === client.ip);
+        if (!entry) {
+            entry = { ip: client.ip, first: now, last: now, visits: 0, names: [], sessions: [] };
+            history.push(entry);
+        }
+        entry.last = now;
+        entry.visits++;
+        let name = entry.names.find(n => n.name === client.name);
+        if (!name) { name = { name: client.name, first: now, last: now, visits: 0 }; entry.names.push(name); }
+        name.last = now;
+        name.visits++;
+        entry.names = entry.names.slice(-32);
+        entry.sessions.push({ id: client.id, name: client.name, room: client.room, start: now, end: null, agent: client.agent });
+        entry.sessions = entry.sessions.slice(-50);
+        history = history.sort((a, b) => a.last - b.last).slice(-512);
+        saveHistory();
+    }
+
+    function forget(client)
+    {
+        const entry = history.find(h => h.ip === client.ip);
+        const session = entry?.sessions.find(s => s.id === client.id);
+        if (!session) return;
+        session.end = Date.now();
+        entry.last = session.end;
+        saveHistory();
     }
 
     function json(res, code, value)
@@ -127,8 +168,13 @@ function createAdmin({ rooms, clients, send, options, notice })
             const room = rooms.get(selected);
             return json(res, 200, {
                 rooms: [...rooms].map(([name, r]) => ({ name, players: r.size, drawings: new Set(r.ink.map(op => op.id)).size })),
-                players: [...clients].filter(c => c.room).map(c => ({ id: c.id, name: c.name, ip: c.ip, room: c.room, muted: !!c.muted })),
+                players: [...clients].filter(c => c.room).map(c => ({ id: c.id, name: c.name, ip: c.ip, room: c.room, muted: !!c.muted, joined: c.joined, agent: c.agent })),
                 room: room ? { name: selected, drawing: room.ink, chat: room.chat } : null,
+                history: history.slice().reverse().map(h => ({ ...h,
+                    banned: bans.some(b => b.ip === h.ip),
+                    online: [...clients].filter(c => c.room && c.ip === h.ip).length,
+                    sessions: h.sessions.map(s => ({ ...s, online: [...clients].some(c => c.id === s.id && c.room) }))
+                })),
                 authors: Object.fromEntries(authors), bans,
                 trash: trash.map(item => ({ id: item.id, room: item.room, kind: item.kind }))
             });
@@ -212,6 +258,6 @@ function createAdmin({ rooms, clients, send, options, notice })
         } else return json(res, 400, { error: "Unknown action" });
         return json(res, 200, { ok: true });
     }
-    return { handle, address, remember, blocked: ip => bans.some(b => b.ip === ip) };
+    return { handle, address, remember, forget, blocked: ip => bans.some(b => b.ip === ip) };
 }
 module.exports = { createAdmin };

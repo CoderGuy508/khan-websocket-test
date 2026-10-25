@@ -114,7 +114,7 @@
         $("room").value = state.room ? state.room.name : selected;
         $("count").textContent = state.players.length + " online";
         $("players").replaceChildren();
-        for (const player of state.players) row($("players"), player.name, player.ip + " · " + player.room, [
+        for (const player of state.players) row($("players"), player.name, player.ip + " · " + player.room + " · joined " + new Date(player.joined).toLocaleString() + " · " + (player.agent || "Unknown browser"), [
             button("Kick", () => act("kick", { id: player.id })),
             button(player.muted ? "Unmute" : "Mute", () => act("mute", { id: player.id, muted: !player.muted })),
             button("Delete drawings", () => act("author", { id: player.id, room: player.room }), true),
@@ -152,9 +152,33 @@
         $("bans").replaceChildren();
         for (const entry of state.bans) row($("bans"), entry.ip, new Date(entry.time).toLocaleString(), [button("Unban", () => act("unban", { ip: entry.ip }))]);
         empty($("bans"), "No IP bans.");
+        renderHistory();
         $("trash").replaceChildren();
         for (const item of state.trash.slice().reverse()) row($("trash"), item.kind === "drawing" ? "Drawing" : "Chat message", item.room, [button("Restore", () => act("restore", { id: item.id }))]);
         empty($("trash"), "Nothing deleted yet.");
+    }
+
+    function renderHistory()
+    {
+        const query = $("historySearch").value.trim().toLowerCase();
+        const open = new Set([...$("history").querySelectorAll("details[open]")].map(el => el.dataset.ip));
+        $("history").replaceChildren();
+        for (const entry of state.history || []) {
+            if (query && !entry.ip.includes(query) && !entry.names.some(n => n.name.toLowerCase().includes(query))) continue;
+            const details = node("details");
+            details.dataset.ip = entry.ip;
+            details.open = open.has(entry.ip);
+            details.append(node("summary", entry.ip + " · " + entry.visits + " visits · " + entry.online + " online" + (entry.banned ? " · BANNED" : "")));
+            details.append(node("p", "First: " + new Date(entry.first).toLocaleString() + " · Last: " + new Date(entry.last).toLocaleString(), "muted small"));
+            for (const name of entry.names) details.append(node("p", name.name + " · " + name.visits + " visits · last " + new Date(name.last).toLocaleString()));
+            details.append(button(entry.banned ? "Unban IP" : "Ban IP", () => entry.banned ? act("unban", { ip: entry.ip }) : ban(entry.ip), !entry.banned));
+            for (const visit of entry.sessions.slice().reverse()) {
+                const end = visit.online ? "online now" : visit.end ? new Date(visit.end).toLocaleString() : "server session ended";
+                details.append(node("p", visit.name + " · " + visit.room + " · " + new Date(visit.start).toLocaleString() + " → " + end + " · " + (visit.agent || "Unknown browser"), "muted small"));
+            }
+            $("history").append(details);
+        }
+        empty($("history"), "No matching history.");
     }
 
     async function refresh()
@@ -179,6 +203,7 @@
         try { await api("logout", {}); show(false); message("Signed out."); }
         catch (error) { message(error.message, true); }
     };
+    $("historySearch").oninput = () => { if (state) renderHistory(); };
     $("room").onchange = () => { limit = 24; refresh().catch(error => message(error.message, true)); };
     $("more").onclick = () => { limit += 24; render(); };
     $("clearBoard").onclick = () => act("board");

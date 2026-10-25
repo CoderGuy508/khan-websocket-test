@@ -4,3 +4,6 @@ node_modules/
 admin-bans.json
 admin-bans.json.tmp
 .env.admin
+
+*.history.json
+*.history.json.tmp

@@ -139,3 +139,21 @@ test("admin can mute, announce, unmute and remove an author's drawings", async t
     await api("action", { action: "restore", id: trash[0].id });
     assert.equal(app.rooms.get("ADMINTEST").ink.length, 1);
 });
+
+test("admin history groups aliases by IP and records disconnect times privately", async t => {
+    const { key, api, player } = await setup(t);
+    const a = await player("FirstName");
+    a.ws.close();
+    await until(() => a.ws.readyState === WebSocket.CLOSED);
+    const b = await player("SecondName");
+    assert.equal((await api("state")).response.status, 401);
+    await api("login", { key });
+    const state = (await api("state")).data;
+    const entry = state.history.find(h => h.ip === "127.0.0.1");
+    assert.equal(entry.visits, 2);
+    assert.deepEqual(entry.names.map(n => n.name), ["FirstName", "SecondName"]);
+    assert.equal(entry.online, 1);
+    assert.ok(entry.sessions[0].end >= entry.sessions[0].start);
+    assert.equal(entry.sessions[1].online, true);
+    assert.ok(b.messages.filter(m => m.type === "snapshot").every(m => !JSON.stringify(m).includes("127.0.0.1")));
+});

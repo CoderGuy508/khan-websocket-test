@@ -36,3 +36,7 @@ canvas { display: block; width: 100%; height: auto; background: #f5f7fa; border:
 .drawing button { margin-top: 8px; }
 #more { margin-top: 16px; }
 @media (max-width: 720px) { main { grid-template-columns: 1fr; } body { padding: 20px 12px; } .card { padding: 15px; } .row { flex-wrap: wrap; } }
+
+#historySearch { width: 100%; margin-bottom: 8px; }
+#history details { padding: 12px 0; border-bottom: 1px solid #e1e7f0; overflow-wrap: anywhere; }
+#history summary { cursor: pointer; font-weight: 600; }
